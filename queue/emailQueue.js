@@ -16,25 +16,44 @@ export const emailQueue = new Queue(EMAIL_QUEUE_NAME, {
   }
 });
 
+function isDuplicateJobError(error) {
+  const message = String(error?.message || "");
+  return /already exists|already waiting|job .* exists/i.test(message);
+}
+
 export async function enqueueCampaignRecipients(recipients, chunkSize = 2000) {
   if (!recipients.length) {
-    return;
+    return { queued: 0, duplicates: 0 };
   }
+
+  let queued = 0;
+  let duplicates = 0;
 
   // Enqueue in chunks to avoid huge Redis payloads for very large campaigns.
   for (let offset = 0; offset < recipients.length; offset += chunkSize) {
     const chunk = recipients.slice(offset, offset + chunkSize);
-    const jobs = chunk.map((recipient) => ({
-      name: `recipient-${recipient.id}`,
-      data: {
-        recipientId: recipient.id,
-        campaignId: recipient.campaign_id
-      },
-      opts: {
-        jobId: `campaign:${recipient.campaign_id}:recipient:${recipient.id}`
+    for (const recipient of chunk) {
+      try {
+        await emailQueue.add(
+          `recipient-${recipient.id}`,
+          {
+            recipientId: recipient.id,
+            campaignId: recipient.campaign_id
+          },
+          {
+            jobId: `campaign:${recipient.campaign_id}:recipient:${recipient.id}`
+          }
+        );
+        queued += 1;
+      } catch (error) {
+        if (isDuplicateJobError(error)) {
+          duplicates += 1;
+          continue;
+        }
+        throw error;
       }
-    }));
-
-    await emailQueue.addBulk(jobs);
+    }
   }
+
+  return { queued, duplicates };
 }

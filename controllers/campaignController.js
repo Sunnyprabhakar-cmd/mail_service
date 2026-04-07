@@ -108,7 +108,7 @@ export async function sendCampaign(req, res, next) {
 
     // One queued job per recipient gives isolated retry/failure handling.
     const pendingRecipients = await getPendingRecipientsByCampaign(campaignId);
-    await enqueueCampaignRecipients(pendingRecipients);
+    const enqueueResult = await enqueueCampaignRecipients(pendingRecipients);
 
     if (pendingRecipients.length === 0) {
       await updateCampaignStatusIfComplete(campaignId);
@@ -117,7 +117,9 @@ export async function sendCampaign(req, res, next) {
     return res.status(202).json({
       message: "Campaign queued",
       campaignId,
-      queuedJobs: pendingRecipients.length
+      queuedJobs: enqueueResult.queued,
+      duplicateJobs: enqueueResult.duplicates,
+      pendingRecipients: pendingRecipients.length
     });
   } catch (error) {
     return next(error);
