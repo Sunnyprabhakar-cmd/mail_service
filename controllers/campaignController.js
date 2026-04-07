@@ -1,8 +1,10 @@
 import {
   createCampaign,
   getCampaignById,
+  getCampaignAssets,
   getCampaignStatusCounts,
   getPendingRecipientsByCampaign,
+  upsertCampaignAssets,
   updateCampaignStatusIfComplete
 } from "../db/queries.js";
 import { redisConnection } from "../queue/redis.js";
@@ -49,7 +51,14 @@ async function buildCampaignProgress(campaignId) {
 export async function uploadCampaignCsv(req, res, next) {
   try {
     const { name, subject, template } = req.body;
-    const file = req.file;
+    const file = req.files?.file?.[0];
+    const uploadedAssets = Array.isArray(req.files?.assetFiles) ? req.files.assetFiles : [];
+    let assetManifest = [];
+    try {
+      assetManifest = JSON.parse(String(req.body.assetManifest || "[]"));
+    } catch {
+      assetManifest = [];
+    }
 
     if (!name || !subject || !template) {
       return res.status(400).json({ error: "name, subject and template are required" });
@@ -61,6 +70,29 @@ export async function uploadCampaignCsv(req, res, next) {
 
     const campaign = await createCampaign({ name, subject, template });
     const campaignToken = signCampaignToken(campaign.id);
+
+    let uploadedAssetCount = 0;
+    if (uploadedAssets.length > 0) {
+      const mappedAssets = uploadedAssets
+        .map((assetFile, index) => {
+          const meta = assetManifest[index] || {};
+          const cid = String(meta.cid || "").trim();
+          if (!cid) {
+            return null;
+          }
+          return {
+            cid,
+            fileName: String(meta.fileName || assetFile.originalname || cid),
+            mimeType: String(assetFile.mimetype || "application/octet-stream"),
+            content: assetFile.buffer
+          };
+        })
+        .filter(Boolean);
+
+      if (mappedAssets.length > 0) {
+        uploadedAssetCount = await upsertCampaignAssets(campaign.id, mappedAssets);
+      }
+    }
 
     const importResult = await ingestRecipientsFromCsvBuffer({
       campaignId: campaign.id,
@@ -78,6 +110,7 @@ export async function uploadCampaignCsv(req, res, next) {
       message: "Campaign uploaded and recipients stored in database.",
       campaign,
       campaignToken,
+      uploadedAssetCount,
       insertedCount: importResult.insertedCount,
       invalidCount: importResult.invalidCount
     });
@@ -96,6 +129,19 @@ export async function sendCampaign(req, res, next) {
     const campaign = await getCampaignById(campaignId);
     if (!campaign) {
       return res.status(404).json({ error: "Campaign not found" });
+    }
+
+    const cidMatches = String(campaign.template || "").match(/cid:([a-zA-Z0-9._-]+)/g) || [];
+    if (cidMatches.length > 0) {
+      const expectedCids = [...new Set(cidMatches.map((entry) => entry.replace("cid:", "").trim()).filter(Boolean))];
+      const storedAssets = await getCampaignAssets(campaignId);
+      const availableCids = new Set(storedAssets.map((asset) => String(asset.cid || "").trim()));
+      const missingCids = expectedCids.filter((cid) => !availableCids.has(cid));
+      if (missingCids.length > 0) {
+        return res.status(400).json({
+          error: `Missing inline assets for CID(s): ${missingCids.join(", ")}`
+        });
+      }
     }
 
     const workerHealth = await readWorkerHeartbeat(redisConnection);

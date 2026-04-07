@@ -19,6 +19,22 @@ async function runMigrations() {
 
   await pool.query(
     `
+      CREATE TABLE IF NOT EXISTS campaign_assets (
+        id BIGSERIAL PRIMARY KEY,
+        campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        cid VARCHAR(255) NOT NULL,
+        file_name VARCHAR(255) NOT NULL,
+        mime_type VARCHAR(120) NOT NULL,
+        content BYTEA NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (campaign_id, cid)
+      )
+    `
+  );
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_assets_campaign_id ON campaign_assets(campaign_id)`);
+
+  await pool.query(
+    `
     DO $$
     BEGIN
       IF NOT EXISTS (

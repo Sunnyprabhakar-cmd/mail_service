@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { uploadCsv } from "../middlewares/upload.js";
+import { uploadCampaignForm } from "../middlewares/upload.js";
 import { requireCampaignAccess } from "../middlewares/campaignAuth.js";
 import { getHealth } from "../controllers/healthController.js";
 import {
@@ -15,7 +15,7 @@ const router = Router();
 
 router.get("/health", getHealth);
 
-router.post("/campaigns/upload", uploadCsv.single("file"), uploadCampaignCsv);
+router.post("/campaigns/upload", uploadCampaignForm, uploadCampaignCsv);
 router.post("/campaigns/:id/send", requireCampaignAccess, sendCampaign);
 router.get("/campaigns/:id/status", requireCampaignAccess, campaignStatus);
 router.get("/campaigns/:id/progress", requireCampaignAccess, campaignProgress);

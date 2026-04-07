@@ -3,6 +3,7 @@ import { EMAIL_QUEUE_NAME } from "../queue/emailQueue.js";
 import { redisConnection } from "../queue/redis.js";
 import { env } from "../config/env.js";
 import {
+	getCampaignAssets,
 	getRecipientWithCampaign,
 	markRecipientAsFailed,
 	markRecipientAsSent,
@@ -18,6 +19,17 @@ const stopHeartbeat = startWorkerHeartbeat(redisConnection, {
 	logger
 });
 
+function fallbackNameFromEmail(email) {
+	const local = String(email || "").split("@")[0] || "";
+	if (!local) {
+		return "";
+	}
+	return local
+		.replace(/[._-]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
 const worker = new Worker(
 	EMAIL_QUEUE_NAME,
 	async (job) => {
@@ -28,18 +40,25 @@ const worker = new Worker(
 			throw new Error(`Recipient ${recipientId} not found for campaign ${campaignId}`);
 		}
 
+		const recipientName = record.name || fallbackNameFromEmail(record.email);
+
 		// Replace template placeholders with recipient-specific attributes.
-		const html = personalizeTemplate(record.template, {
-			name: record.name || "",
+		const variables = {
+			name: recipientName,
 			company: record.company || "",
 			email: record.email
-		});
+		};
+
+		const html = personalizeTemplate(record.template, variables);
+		const subject = personalizeTemplate(record.subject, variables);
+		const inlineAssets = await getCampaignAssets(record.campaign_id);
 
 		try {
 			await sendMailgunEmail({
 				to: record.email,
-				subject: record.subject,
-				html
+				subject,
+				html,
+				inlineAssets
 			});
 
 			await markRecipientAsSent(record.recipient_id);

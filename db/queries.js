@@ -11,7 +11,7 @@ export async function createCampaign({ name, subject, template }) {
 export async function getCampaignById(campaignId) {
   const result = await pool.query(
     `
-    SELECT id, name, subject, status, import_status, imported_count, invalid_count, import_error, created_at
+    SELECT id, name, subject, template, status, import_status, imported_count, invalid_count, import_error, created_at
     FROM campaigns
     WHERE id = $1
   `,
@@ -133,6 +133,42 @@ export async function updateCampaignStatusIfComplete(campaignId) {
   );
 
   return result.rows[0] || null;
+}
+
+export async function upsertCampaignAssets(campaignId, assets = []) {
+  if (!Array.isArray(assets) || assets.length === 0) {
+    return 0;
+  }
+
+  let written = 0;
+  for (const asset of assets) {
+    await pool.query(
+      `
+        INSERT INTO campaign_assets (campaign_id, cid, file_name, mime_type, content)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (campaign_id, cid)
+        DO UPDATE SET file_name = EXCLUDED.file_name,
+                      mime_type = EXCLUDED.mime_type,
+                      content = EXCLUDED.content
+      `,
+      [campaignId, asset.cid, asset.fileName, asset.mimeType, asset.content]
+    );
+    written += 1;
+  }
+
+  return written;
+}
+
+export async function getCampaignAssets(campaignId) {
+  const result = await pool.query(
+    `
+      SELECT cid, file_name, mime_type, content
+      FROM campaign_assets
+      WHERE campaign_id = $1
+    `,
+    [campaignId]
+  );
+  return result.rows;
 }
 
 export async function updateRecipientStatusByEmail(campaignId, email, status, error = null) {
