@@ -1,23 +1,64 @@
 import { pool } from "./pool.js";
 
+let replyToEmailSchemaReady = false;
+
+async function ensureReplyToEmailSchema() {
+  if (replyToEmailSchemaReady) {
+    return;
+  }
+
+  await pool.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS reply_to_email VARCHAR(320)`);
+  replyToEmailSchemaReady = true;
+}
+
 export async function createCampaign({ name, subject, template, replyToEmail = null }) {
-  const result = await pool.query(
-    `INSERT INTO campaigns (name, subject, template, reply_to_email) VALUES ($1, $2, $3, $4) RETURNING *`,
-    [name, subject, template, replyToEmail]
-  );
-  return result.rows[0];
+  try {
+    const result = await pool.query(
+      `INSERT INTO campaigns (name, subject, template, reply_to_email) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [name, subject, template, replyToEmail]
+    );
+    return result.rows[0];
+  } catch (error) {
+    if (error?.code === "42703" || String(error?.message || "").includes("reply_to_email")) {
+      replyToEmailSchemaReady = false;
+      await ensureReplyToEmailSchema();
+      const result = await pool.query(
+        `INSERT INTO campaigns (name, subject, template, reply_to_email) VALUES ($1, $2, $3, $4) RETURNING *`,
+        [name, subject, template, replyToEmail]
+      );
+      return result.rows[0];
+    }
+    throw error;
+  }
 }
 
 export async function getCampaignById(campaignId) {
-  const result = await pool.query(
-    `
-    SELECT id, name, subject, reply_to_email, template, status, import_status, imported_count, invalid_count, import_error, created_at
-    FROM campaigns
-    WHERE id = $1
-  `,
-    [campaignId]
-  );
-  return result.rows[0] || null;
+  try {
+    const result = await pool.query(
+      `
+      SELECT id, name, subject, reply_to_email, template, status, import_status, imported_count, invalid_count, import_error, created_at
+      FROM campaigns
+      WHERE id = $1
+    `,
+      [campaignId]
+    );
+    return result.rows[0] || null;
+  } catch (error) {
+    if (error?.code === "42703" || String(error?.message || "").includes("reply_to_email")) {
+      replyToEmailSchemaReady = false;
+      await ensureReplyToEmailSchema();
+      const result = await pool.query(
+        `
+        SELECT id, name, subject, reply_to_email, template, status, import_status, imported_count, invalid_count, import_error, created_at
+        FROM campaigns
+        WHERE id = $1
+      `,
+        [campaignId]
+      );
+      return result.rows[0] || null;
+    }
+    throw error;
+  }
 }
 
 export async function setCampaignImportStatus(campaignId, importStatus, importedCount = 0, invalidCount = 0, importError = null) {
@@ -88,26 +129,54 @@ export async function getCampaignStatusCounts(campaignId) {
 }
 
 export async function getRecipientWithCampaign(recipientId, campaignId) {
-  const result = await pool.query(
-    `
-    SELECT
-      r.id AS recipient_id,
-      r.campaign_id,
-      r.email,
-      r.name,
-      r.company,
-      c.subject,
-      c.reply_to_email,
-      c.template
-    FROM recipients r
-    JOIN campaigns c ON c.id = r.campaign_id
-    WHERE r.id = $1 AND r.campaign_id = $2
-    LIMIT 1
-  `,
-    [recipientId, campaignId]
-  );
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        r.id AS recipient_id,
+        r.campaign_id,
+        r.email,
+        r.name,
+        r.company,
+        c.subject,
+        c.reply_to_email,
+        c.template
+      FROM recipients r
+      JOIN campaigns c ON c.id = r.campaign_id
+      WHERE r.id = $1 AND r.campaign_id = $2
+      LIMIT 1
+    `,
+      [recipientId, campaignId]
+    );
 
-  return result.rows[0] || null;
+    return result.rows[0] || null;
+  } catch (error) {
+    if (error?.code === "42703" || String(error?.message || "").includes("reply_to_email")) {
+      replyToEmailSchemaReady = false;
+      await ensureReplyToEmailSchema();
+      const result = await pool.query(
+        `
+        SELECT
+          r.id AS recipient_id,
+          r.campaign_id,
+          r.email,
+          r.name,
+          r.company,
+          c.subject,
+          c.reply_to_email,
+          c.template
+        FROM recipients r
+        JOIN campaigns c ON c.id = r.campaign_id
+        WHERE r.id = $1 AND r.campaign_id = $2
+        LIMIT 1
+      `,
+        [recipientId, campaignId]
+      );
+
+      return result.rows[0] || null;
+    }
+    throw error;
+  }
 }
 
 export async function markRecipientAsSent(recipientId) {
