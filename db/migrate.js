@@ -6,6 +6,19 @@ import { pool } from "./pool.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const migrationMaxRetries = Math.max(1, Number(process.env.MIGRATION_MAX_RETRIES || 12));
+const migrationRetryDelayMs = Math.max(250, Number(process.env.MIGRATION_RETRY_DELAY_MS || 5000));
+const allowMigrationFailure = String(process.env.ALLOW_MIGRATION_FAILURE || "false").toLowerCase() === "true";
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableMigrationError(error) {
+  const code = String(error?.code || "").toUpperCase();
+  return ["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ETIMEDOUT", "57P03"].includes(code);
+}
+
 async function runMigrations() {
   const schemaPath = path.join(__dirname, "schema.sql");
   const sql = await fs.readFile(schemaPath, "utf8");
@@ -54,8 +67,39 @@ async function runMigrations() {
   console.log("Database schema migrated successfully");
 }
 
-runMigrations()
+async function runWithRetry() {
+  for (let attempt = 1; attempt <= migrationMaxRetries; attempt += 1) {
+    try {
+      if (attempt > 1) {
+        console.log(`Migration retry ${attempt}/${migrationMaxRetries}...`);
+      }
+      await runMigrations();
+      return;
+    } catch (error) {
+      const retryable = isRetryableMigrationError(error);
+      const hasNext = attempt < migrationMaxRetries;
+
+      if (retryable && hasNext) {
+        console.warn(
+          `Migration attempt ${attempt} failed with retryable error (${error.code || error.message}). Retrying in ${migrationRetryDelayMs}ms...`
+        );
+        await sleep(migrationRetryDelayMs);
+        continue;
+      }
+
+      throw error;
+    }
+  }
+}
+
+runWithRetry()
   .catch((error) => {
+    if (allowMigrationFailure) {
+      console.warn("Migration failed, but ALLOW_MIGRATION_FAILURE=true so deployment will continue.");
+      console.warn(error);
+      process.exitCode = 0;
+      return;
+    }
     console.error("Failed to run migrations", error);
     process.exitCode = 1;
   })
