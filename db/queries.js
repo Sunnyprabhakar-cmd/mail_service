@@ -135,11 +135,29 @@ export async function updateCampaignStatusIfComplete(campaignId) {
   return result.rows[0] || null;
 }
 
-function mapMissingCampaignAssetsTableError(error) {
-  if (error?.code === "42P01") {
-    throw new Error("Database is missing table campaign_assets. Run backend migration (npm run migrate) on the deployed database.");
+let campaignAssetsSchemaReady = false;
+
+async function ensureCampaignAssetsSchema() {
+  if (campaignAssetsSchemaReady) {
+    return;
   }
-  throw error;
+
+  await pool.query(
+    `
+      CREATE TABLE IF NOT EXISTS campaign_assets (
+        id BIGSERIAL PRIMARY KEY,
+        campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        cid VARCHAR(255) NOT NULL,
+        file_name VARCHAR(255) NOT NULL,
+        mime_type VARCHAR(120) NOT NULL,
+        content BYTEA NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (campaign_id, cid)
+      )
+    `
+  );
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_assets_campaign_id ON campaign_assets(campaign_id)`);
+  campaignAssetsSchemaReady = true;
 }
 
 export async function upsertCampaignAssets(campaignId, assets = []) {
@@ -150,6 +168,7 @@ export async function upsertCampaignAssets(campaignId, assets = []) {
   let written = 0;
   for (const asset of assets) {
     try {
+      await ensureCampaignAssetsSchema();
       await pool.query(
         `
           INSERT INTO campaign_assets (campaign_id, cid, file_name, mime_type, content)
@@ -162,7 +181,23 @@ export async function upsertCampaignAssets(campaignId, assets = []) {
         [campaignId, asset.cid, asset.fileName, asset.mimeType, asset.content]
       );
     } catch (error) {
-      mapMissingCampaignAssetsTableError(error);
+      if (error?.code === "42P01") {
+        campaignAssetsSchemaReady = false;
+        await ensureCampaignAssetsSchema();
+        await pool.query(
+          `
+            INSERT INTO campaign_assets (campaign_id, cid, file_name, mime_type, content)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (campaign_id, cid)
+            DO UPDATE SET file_name = EXCLUDED.file_name,
+                          mime_type = EXCLUDED.mime_type,
+                          content = EXCLUDED.content
+          `,
+          [campaignId, asset.cid, asset.fileName, asset.mimeType, asset.content]
+        );
+      } else {
+        throw error;
+      }
     }
     written += 1;
   }
@@ -172,6 +207,7 @@ export async function upsertCampaignAssets(campaignId, assets = []) {
 
 export async function getCampaignAssets(campaignId) {
   try {
+    await ensureCampaignAssetsSchema();
     const result = await pool.query(
       `
         SELECT cid, file_name, mime_type, content
@@ -182,7 +218,20 @@ export async function getCampaignAssets(campaignId) {
     );
     return result.rows;
   } catch (error) {
-    mapMissingCampaignAssetsTableError(error);
+    if (error?.code === "42P01") {
+      campaignAssetsSchemaReady = false;
+      await ensureCampaignAssetsSchema();
+      const result = await pool.query(
+        `
+          SELECT cid, file_name, mime_type, content
+          FROM campaign_assets
+          WHERE campaign_id = $1
+        `,
+        [campaignId]
+      );
+      return result.rows;
+    }
+    throw error;
   }
 }
 
