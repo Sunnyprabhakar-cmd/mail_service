@@ -4,7 +4,6 @@ buildCommand = "npm ci"
 
 [deploy]
 startCommand = "npm start"
-preDeployCommand = ""
 healthcheckPath = "/health"
 restartPolicyType = "ALWAYS"
 restartPolicyMaxRetries = 5
