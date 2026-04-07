@@ -4,7 +4,7 @@ buildCommand = "npm ci"
 
 [deploy]
 startCommand = "npm start"
-preDeployCommand = "npm run migrate"
+preDeployCommand = ""
 healthcheckPath = "/health"
 restartPolicyType = "ALWAYS"
 restartPolicyMaxRetries = 5
