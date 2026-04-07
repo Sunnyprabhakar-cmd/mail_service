@@ -36,6 +36,6 @@ if (env.runWorkerInApi) {
 }
 
 app.listen(PORT,"0.0.0.0" ,() => {
-    logger.info(`API server started on port ${env.port}`);
+    logger.info(`API server started on port ${PORT}`);
     startCleanupCron();
 });
