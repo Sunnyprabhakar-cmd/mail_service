@@ -1,3 +1,4 @@
+const PORT = process.env.PORT || env.port || 8080;
 import express from "express";
 import { env } from "./config/env.js";
 import routes from "./routes/routes.js";
@@ -34,7 +35,7 @@ if (env.runWorkerInApi) {
         });
 }
 
-app.listen(env.port, () => {
+app.listen(PORT,"0.0.0.0" ,() => {
     logger.info(`API server started on port ${env.port}`);
     startCleanupCron();
 });
