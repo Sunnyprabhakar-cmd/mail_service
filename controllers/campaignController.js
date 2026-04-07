@@ -5,9 +5,11 @@ import {
   getPendingRecipientsByCampaign,
   updateCampaignStatusIfComplete
 } from "../db/queries.js";
+import { redisConnection } from "../queue/redis.js";
 import { enqueueCampaignRecipients } from "../queue/emailQueue.js";
 import { ingestRecipientsFromCsvBuffer } from "../services/campaignService.js";
 import { signCampaignToken } from "../services/campaignTokenService.js";
+import { readWorkerHeartbeat } from "../services/workerHeartbeat.js";
 import { logger } from "../services/logger.js";
 
 async function buildCampaignProgress(campaignId) {
@@ -94,6 +96,14 @@ export async function sendCampaign(req, res, next) {
     const campaign = await getCampaignById(campaignId);
     if (!campaign) {
       return res.status(404).json({ error: "Campaign not found" });
+    }
+
+    const workerHealth = await readWorkerHeartbeat(redisConnection);
+    if (workerHealth.status !== "online") {
+      return res.status(503).json({
+        error: "Email worker is not online. Start worker service (or enable RUN_WORKER_IN_API=true) before sending campaign.",
+        worker: workerHealth
+      });
     }
 
     // One queued job per recipient gives isolated retry/failure handling.
