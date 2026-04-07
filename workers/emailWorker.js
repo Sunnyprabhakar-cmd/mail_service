@@ -58,6 +58,7 @@ const worker = new Worker(
 				to: record.email,
 				subject,
 				html,
+				replyTo: record.reply_to_email,
 				inlineAssets
 			});
 

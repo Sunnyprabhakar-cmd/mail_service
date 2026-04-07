@@ -11,12 +11,15 @@ const mailgunClient = axios.create({
   timeout: 15000
 });
 
-export async function sendMailgunEmail({ to, subject, html, inlineAssets = [] }) {
+export async function sendMailgunEmail({ to, subject, html, replyTo, inlineAssets = [] }) {
   const body = new FormData();
   body.append("from", env.mailgunFrom);
   body.append("to", to);
   body.append("subject", subject);
   body.append("html", html);
+  if (String(replyTo || "").trim()) {
+    body.append("h:Reply-To", String(replyTo).trim());
+  }
 
   for (const asset of inlineAssets) {
     const cid = String(asset.cid || "").trim();

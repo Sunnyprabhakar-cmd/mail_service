@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   id BIGSERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   subject VARCHAR(255) NOT NULL,
+  reply_to_email VARCHAR(320),
   template TEXT NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent')),
   import_status VARCHAR(20) NOT NULL DEFAULT 'queued' CHECK (import_status IN ('queued', 'processing', 'completed', 'failed')),

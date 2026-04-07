@@ -16,6 +16,7 @@ async function runMigrations() {
   await pool.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS imported_count INT NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS invalid_count INT NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS import_error TEXT`);
+  await pool.query(`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS reply_to_email VARCHAR(320)`);
 
   await pool.query(
     `

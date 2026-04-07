@@ -1,9 +1,9 @@
 import { pool } from "./pool.js";
 
-export async function createCampaign({ name, subject, template }) {
+export async function createCampaign({ name, subject, template, replyToEmail = null }) {
   const result = await pool.query(
-    `INSERT INTO campaigns (name, subject, template) VALUES ($1, $2, $3) RETURNING *`,
-    [name, subject, template]
+    `INSERT INTO campaigns (name, subject, template, reply_to_email) VALUES ($1, $2, $3, $4) RETURNING *`,
+    [name, subject, template, replyToEmail]
   );
   return result.rows[0];
 }
@@ -11,7 +11,7 @@ export async function createCampaign({ name, subject, template }) {
 export async function getCampaignById(campaignId) {
   const result = await pool.query(
     `
-    SELECT id, name, subject, template, status, import_status, imported_count, invalid_count, import_error, created_at
+    SELECT id, name, subject, reply_to_email, template, status, import_status, imported_count, invalid_count, import_error, created_at
     FROM campaigns
     WHERE id = $1
   `,
@@ -97,6 +97,7 @@ export async function getRecipientWithCampaign(recipientId, campaignId) {
       r.name,
       r.company,
       c.subject,
+      c.reply_to_email,
       c.template
     FROM recipients r
     JOIN campaigns c ON c.id = r.campaign_id

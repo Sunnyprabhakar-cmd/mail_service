@@ -50,7 +50,7 @@ async function buildCampaignProgress(campaignId) {
 
 export async function uploadCampaignCsv(req, res, next) {
   try {
-    const { name, subject, template } = req.body;
+    const { name, subject, template, replyToEmail } = req.body;
     const file = req.files?.file?.[0];
     const uploadedAssets = Array.isArray(req.files?.assetFiles) ? req.files.assetFiles : [];
     let assetManifest = [];
@@ -68,7 +68,7 @@ export async function uploadCampaignCsv(req, res, next) {
       return res.status(400).json({ error: "CSV file is required" });
     }
 
-    const campaign = await createCampaign({ name, subject, template });
+    const campaign = await createCampaign({ name, subject, template, replyToEmail: String(replyToEmail || "").trim() || null });
     const campaignToken = signCampaignToken(campaign.id);
 
     let uploadedAssetCount = 0;
