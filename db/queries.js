@@ -1,0 +1,163 @@
+import { pool } from "./pool.js";
+
+export async function createCampaign({ name, subject, template }) {
+  const result = await pool.query(
+    `INSERT INTO campaigns (name, subject, template) VALUES ($1, $2, $3) RETURNING *`,
+    [name, subject, template]
+  );
+  return result.rows[0];
+}
+
+export async function getCampaignById(campaignId) {
+  const result = await pool.query(
+    `
+    SELECT id, name, subject, status, import_status, imported_count, invalid_count, import_error, created_at
+    FROM campaigns
+    WHERE id = $1
+  `,
+    [campaignId]
+  );
+  return result.rows[0] || null;
+}
+
+export async function setCampaignImportStatus(campaignId, importStatus, importedCount = 0, invalidCount = 0, importError = null) {
+  await pool.query(
+    `
+    UPDATE campaigns
+    SET import_status = $2,
+        imported_count = $3,
+        invalid_count = $4,
+        import_error = $5
+    WHERE id = $1
+  `,
+    [campaignId, importStatus, importedCount, invalidCount, importError]
+  );
+}
+
+export async function batchInsertRecipients(campaignId, recipients, batchSize = 1000) {
+  let inserted = 0;
+
+  // Insert recipients in chunks to avoid oversized SQL payloads.
+  for (let offset = 0; offset < recipients.length; offset += batchSize) {
+    const chunk = recipients.slice(offset, offset + batchSize);
+    if (chunk.length === 0) {
+      continue;
+    }
+
+    const emails = chunk.map((recipient) => recipient.email);
+    const names = chunk.map((recipient) => recipient.name || null);
+    const companies = chunk.map((recipient) => recipient.company || null);
+
+    await pool.query(
+      `
+      INSERT INTO recipients (campaign_id, email, name, company)
+      SELECT $1::BIGINT, data.email, data.name, data.company
+      FROM UNNEST($2::TEXT[], $3::TEXT[], $4::TEXT[]) AS data(email, name, company)
+    `,
+      [campaignId, emails, names, companies]
+    );
+    inserted += chunk.length;
+  }
+
+  return inserted;
+}
+
+export async function getPendingRecipientsByCampaign(campaignId) {
+  const result = await pool.query(
+    `SELECT id, campaign_id, email FROM recipients WHERE campaign_id = $1 AND status = 'pending'`,
+    [campaignId]
+  );
+  return result.rows;
+}
+
+export async function getCampaignStatusCounts(campaignId) {
+  const result = await pool.query(
+    `
+    SELECT
+      COUNT(*)::INT AS total,
+      COUNT(*) FILTER (WHERE status = 'sent')::INT AS sent,
+      COUNT(*) FILTER (WHERE status = 'failed')::INT AS failed,
+      COUNT(*) FILTER (WHERE status = 'pending')::INT AS pending
+    FROM recipients
+    WHERE campaign_id = $1
+  `,
+    [campaignId]
+  );
+
+  return result.rows[0];
+}
+
+export async function getRecipientWithCampaign(recipientId, campaignId) {
+  const result = await pool.query(
+    `
+    SELECT
+      r.id AS recipient_id,
+      r.campaign_id,
+      r.email,
+      r.name,
+      r.company,
+      c.subject,
+      c.template
+    FROM recipients r
+    JOIN campaigns c ON c.id = r.campaign_id
+    WHERE r.id = $1 AND r.campaign_id = $2
+    LIMIT 1
+  `,
+    [recipientId, campaignId]
+  );
+
+  return result.rows[0] || null;
+}
+
+export async function markRecipientAsSent(recipientId) {
+  await pool.query(`UPDATE recipients SET status = 'sent', error = NULL WHERE id = $1`, [recipientId]);
+}
+
+export async function markRecipientAsFailed(recipientId, errorMessage) {
+  await pool.query(`UPDATE recipients SET status = 'failed', error = $2 WHERE id = $1`, [recipientId, errorMessage]);
+}
+
+export async function updateCampaignStatusIfComplete(campaignId) {
+  // Campaign is marked as sent once no pending recipients remain.
+  const result = await pool.query(
+    `
+    UPDATE campaigns
+    SET status = 'sent'
+    WHERE id = $1
+      AND NOT EXISTS (
+        SELECT 1 FROM recipients WHERE campaign_id = $1 AND status = 'pending'
+      )
+    RETURNING id, status
+  `,
+    [campaignId]
+  );
+
+  return result.rows[0] || null;
+}
+
+export async function updateRecipientStatusByEmail(campaignId, email, status, error = null) {
+  const result = await pool.query(
+    `
+    UPDATE recipients
+    SET status = $3, error = $4
+    WHERE campaign_id = $1 AND LOWER(email) = LOWER($2)
+    RETURNING id, email, status
+  `,
+    [campaignId, email, status, error]
+  );
+
+  return result.rows;
+}
+
+export async function deleteOldCampaigns(days) {
+  const result = await pool.query(
+    `
+    DELETE FROM campaigns
+    WHERE created_at < NOW() - ($1::INT * INTERVAL '1 day')
+    RETURNING id
+  `,
+    [days]
+  );
+
+  return result.rowCount;
+}
