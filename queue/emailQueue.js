@@ -41,7 +41,7 @@ export async function enqueueCampaignRecipients(recipients, chunkSize = 2000) {
             campaignId: recipient.campaign_id
           },
           {
-            jobId: `campaign:${recipient.campaign_id}:recipient:${recipient.id}`
+            jobId: `campaign-${recipient.campaign_id}-recipient-${recipient.id}`
           }
         );
         queued += 1;
