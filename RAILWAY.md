@@ -119,7 +119,16 @@ curl https://<your-railway-service-domain>/health
 If the API is up, the response should be:
 
 ```json
-{ "status": "ok" }
+{
+	"status": "ok",
+	"database": { "status": "ok" },
+	"redis": { "status": "ok" },
+	"worker": {
+		"status": "online",
+		"source": "worker",
+		"lastSeenAt": "2026-04-07T12:00:00.000Z"
+	}
+}
 ```
 
 Then verify that the worker starts and the first campaign send completes successfully.

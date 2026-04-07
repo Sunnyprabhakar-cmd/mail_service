@@ -11,6 +11,12 @@ import {
 import { personalizeTemplate } from "../services/templateService.js";
 import { sendMailgunEmail } from "../services/mailgunService.js";
 import { logger } from "../services/logger.js";
+import { startWorkerHeartbeat } from "../services/workerHeartbeat.js";
+
+const stopHeartbeat = startWorkerHeartbeat(redisConnection, {
+	source: env.runWorkerInApi ? "embedded" : "worker",
+	logger
+});
 
 const worker = new Worker(
 	EMAIL_QUEUE_NAME,
@@ -84,6 +90,15 @@ worker.on("failed", (job, error) => {
 
 process.on("SIGINT", async () => {
 	logger.warn("Gracefully shutting down worker");
+	stopHeartbeat();
+	await worker.close();
+	await redisConnection.quit();
+	process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+	logger.warn("Gracefully shutting down worker");
+	stopHeartbeat();
 	await worker.close();
 	await redisConnection.quit();
 	process.exit(0);

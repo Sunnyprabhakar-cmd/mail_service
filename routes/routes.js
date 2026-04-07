@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { uploadCsv } from "../middlewares/upload.js";
 import { requireCampaignAccess } from "../middlewares/campaignAuth.js";
+import { getHealth } from "../controllers/healthController.js";
 import {
 	campaignEvents,
 	campaignProgress,
@@ -12,9 +13,7 @@ import { handleMailgunWebhook } from "../controllers/webhookController.js";
 
 const router = Router();
 
-router.get("/health", (_req, res) => {
-	res.status(200).json({ status: "ok" });
-});
+router.get("/health", getHealth);
 
 router.post("/campaigns/upload", uploadCsv.single("file"), uploadCampaignCsv);
 router.post("/campaigns/:id/send", requireCampaignAccess, sendCampaign);
