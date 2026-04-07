@@ -78,6 +78,16 @@ Use the same environment variables as the API service.
 
 If you want Railway config as code for the worker too, create a second Railway service in the dashboard and set its start command to `npm run worker`. Railway applies config per service, so the included `railway.toml` is intentionally scoped to the API service.
 
+### Single-service fallback (optional)
+
+If you are running only one Railway service and recipients stay `pending`, set:
+
+```text
+RUN_WORKER_IN_API=true
+```
+
+This starts the BullMQ worker inside the API process so queued jobs are consumed without a separate worker service.
+
 ## 4. Mailgun webhook URL
 
 Point Mailgun webhooks at your Railway API service:

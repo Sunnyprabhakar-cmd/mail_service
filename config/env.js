@@ -20,6 +20,7 @@ for (const key of requiredEnv) {
 export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT || 3000),
+  runWorkerInApi: String(process.env.RUN_WORKER_IN_API || "false").toLowerCase() === "true",
   databaseUrl: process.env.DATABASE_URL,
   redisUrl: process.env.REDIS_URL,
   mailgunApiKey: process.env.MAILGUN_API_KEY,

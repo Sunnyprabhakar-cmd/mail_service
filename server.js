@@ -13,6 +13,17 @@ app.use(routes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
+if (env.runWorkerInApi) {
+    // Optional fallback for single-service deployments (for example, one Railway service).
+    import("./workers/emailWorker.js")
+        .then(() => {
+            logger.info("Embedded email worker started (RUN_WORKER_IN_API=true)");
+        })
+        .catch((error) => {
+            logger.error("Failed to start embedded email worker", { error: error.message });
+        });
+}
+
 app.listen(env.port, () => {
     logger.info(`API server started on port ${env.port}`);
     startCleanupCron();
