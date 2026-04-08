@@ -4,11 +4,35 @@ import { batchInsertRecipients, setCampaignImportStatus } from "../db/queries.js
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
 
+function normalizeHeaderKey(key) {
+  return String(key || "")
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+}
+
+function pickField(row, aliases) {
+  const normalizedMap = new Map();
+  for (const [key, value] of Object.entries(row || {})) {
+    normalizedMap.set(normalizeHeaderKey(key), value);
+  }
+
+  for (const alias of aliases) {
+    const value = normalizedMap.get(normalizeHeaderKey(alias));
+    if (value !== undefined && value !== null) {
+      return String(value).trim();
+    }
+  }
+
+  return "";
+}
+
 function normalizeRecipient(row) {
   return {
-    email: String(row.email || "").trim(),
-    name: String(row.name || "").trim(),
-    company: String(row.company || "").trim()
+    email: pickField(row, ["email", "e-mail", "emailaddress", "recipient", "recipientemail"]),
+    name: pickField(row, ["name", "fullname", "first_name", "first name"]),
+    company: pickField(row, ["company", "organization", "org"])
   };
 }
 
