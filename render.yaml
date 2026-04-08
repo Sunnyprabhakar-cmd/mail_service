@@ -1,0 +1,90 @@
+services:
+  - type: web
+    name: mailgun-api
+    env: node
+    rootDir: backend_maily
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RUN_WORKER_IN_API
+        value: "false"
+      - key: CRON_DELETE_AFTER_DAYS
+        value: "30"
+      - key: EMAIL_WORKER_CONCURRENCY
+        value: "40"
+      - key: EMAIL_RATE_LIMIT_MAX
+        value: "80"
+      - key: EMAIL_RATE_LIMIT_DURATION_MS
+        value: "1000"
+      - key: CAMPAIGN_TOKEN_EXPIRES_IN
+        value: 7d
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mailgun-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: mailgun-redis
+          property: connectionString
+      - key: MAILGUN_API_KEY
+        sync: false
+      - key: MAILGUN_DOMAIN
+        sync: false
+      - key: MAILGUN_FROM
+        sync: false
+      - key: CAMPAIGN_TOKEN_SECRET
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
+
+  - type: worker
+    name: mailgun-worker
+    env: node
+    rootDir: backend_maily
+    buildCommand: npm ci
+    startCommand: npm run worker
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RUN_WORKER_IN_API
+        value: "false"
+      - key: WORKER_HTTP_PORT
+        value: "8080"
+      - key: EMAIL_WORKER_CONCURRENCY
+        value: "40"
+      - key: EMAIL_RATE_LIMIT_MAX
+        value: "80"
+      - key: EMAIL_RATE_LIMIT_DURATION_MS
+        value: "1000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mailgun-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: mailgun-redis
+          property: connectionString
+      - key: MAILGUN_API_KEY
+        sync: false
+      - key: MAILGUN_DOMAIN
+        sync: false
+      - key: MAILGUN_FROM
+        sync: false
+      - key: CAMPAIGN_TOKEN_SECRET
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
+
+databases:
+  - name: mailgun-postgres
+    databaseName: mailgun
+    user: mailgun
+
+  - name: mailgun-redis

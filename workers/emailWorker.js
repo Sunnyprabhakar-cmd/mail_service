@@ -1,4 +1,5 @@
 import { Worker } from "bullmq";
+import http from "node:http";
 import { EMAIL_QUEUE_NAME } from "../queue/emailQueue.js";
 import { redisConnection } from "../queue/redis.js";
 import { env } from "../config/env.js";
@@ -13,6 +14,23 @@ import { personalizeTemplate } from "../services/templateService.js";
 import { sendMailgunEmail } from "../services/mailgunService.js";
 import { logger } from "../services/logger.js";
 import { startWorkerHeartbeat } from "../services/workerHeartbeat.js";
+
+const workerHttpPort = Number(process.env.WORKER_HTTP_PORT || process.env.PORT || 8081);
+
+const workerHealthServer = http.createServer((req, res) => {
+	if (req.method === "GET" && req.url === "/health") {
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end(JSON.stringify({ status: "ok" }));
+		return;
+	}
+
+	res.writeHead(404, { "Content-Type": "text/plain" });
+	res.end("Not found");
+});
+
+workerHealthServer.listen(workerHttpPort, "0.0.0.0", () => {
+	logger.info("Worker health server listening", { port: workerHttpPort });
+});
 
 const stopHeartbeat = startWorkerHeartbeat(redisConnection, {
 	source: env.runWorkerInApi ? "embedded" : "worker",
@@ -111,6 +129,7 @@ worker.on("failed", (job, error) => {
 process.on("SIGINT", async () => {
 	logger.warn("Gracefully shutting down worker");
 	stopHeartbeat();
+	await new Promise((resolve) => workerHealthServer.close(() => resolve(undefined)));
 	await worker.close();
 	await redisConnection.quit();
 	process.exit(0);
@@ -119,6 +138,7 @@ process.on("SIGINT", async () => {
 process.on("SIGTERM", async () => {
 	logger.warn("Gracefully shutting down worker");
 	stopHeartbeat();
+	await new Promise((resolve) => workerHealthServer.close(() => resolve(undefined)));
 	await worker.close();
 	await redisConnection.quit();
 	process.exit(0);

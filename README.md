@@ -189,6 +189,10 @@ john@acme.com,John,Acme Inc
 jane@globex.com,Jane,Globex
 ```
 
-## Railway Deployment
+## Render Deployment
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) and [RAILWAY.md](RAILWAY.md) for a Railway-ready setup with separate web and worker services.
+See [RENDER.md](RENDER.md) for the easiest production setup (API + worker + Postgres + Redis).
+
+## Alternative: Google Cloud Deployment
+
+See [GOOGLE_CLOUD.md](GOOGLE_CLOUD.md) for a Cloud Run, Cloud SQL, and Memorystore setup.
