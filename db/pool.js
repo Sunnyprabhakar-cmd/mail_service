@@ -7,8 +7,6 @@ function resolveSslConfig() {
   const rawToggle = String(process.env.DATABASE_SSL || "auto").trim().toLowerCase();
   const rawSslMode = String(process.env.DATABASE_SSL_MODE || process.env.PGSSLMODE || "").trim().toLowerCase();
   const dbUrl = String(env.databaseUrl || "");
-  const nodeEnv = String(env.nodeEnv || process.env.NODE_ENV || "development").trim().toLowerCase();
-  const isLocalRuntime = ["development", "dev", "test"].includes(nodeEnv);
 
   if (["false", "0", "no", "off", "disable"].includes(rawToggle)) {
     return false;
@@ -16,15 +14,18 @@ function resolveSslConfig() {
 
   const sslModeForcesTls = ["require", "verify-ca", "verify-full"].includes(rawSslMode);
   const urlForcesTls = /[?&]sslmode=require(?:&|$)/i.test(dbUrl);
+  let hostLooksLocal = false;
   let hostLooksInternal = false;
   try {
     const parsed = new URL(dbUrl);
+    hostLooksLocal = /^(localhost|127\.0\.0\.1|::1)$/i.test(parsed.hostname);
     hostLooksInternal = /\.internal$/i.test(parsed.hostname) || /render\.internal$/i.test(parsed.hostname);
   } catch {
+    hostLooksLocal = false;
     hostLooksInternal = false;
   }
 
-  const autoEnablesTls = rawToggle === "auto" && !isLocalRuntime && !hostLooksInternal;
+  const autoEnablesTls = rawToggle === "auto" && !hostLooksLocal && !hostLooksInternal;
   const shouldUseTls =
     ["true", "1", "yes", "on", "require"].includes(rawToggle) ||
     sslModeForcesTls ||
