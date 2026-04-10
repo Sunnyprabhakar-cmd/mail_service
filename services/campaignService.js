@@ -30,7 +30,7 @@ function pickField(row, aliases) {
 
 function normalizeRecipient(row) {
   return {
-    email: pickField(row, ["email", "e-mail", "emailaddress", "recipient", "recipientemail"]),
+    email: pickField(row, ["email", "e-mail", "emailaddress", "recipient", "recipientemail"]).toLowerCase(),
     name: pickField(row, ["name", "fullname", "first_name", "first name"]),
     company: pickField(row, ["company", "organization", "org"])
   };

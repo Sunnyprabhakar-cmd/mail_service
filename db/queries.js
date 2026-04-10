@@ -103,15 +103,16 @@ export async function batchInsertRecipients(campaignId, recipients, batchSize = 
     const names = chunk.map((recipient) => recipient.name || null);
     const companies = chunk.map((recipient) => recipient.company || null);
 
-    await pool.query(
+    const result = await pool.query(
       `
       INSERT INTO recipients (campaign_id, email, name, company)
       SELECT $1::BIGINT, data.email, data.name, data.company
       FROM UNNEST($2::TEXT[], $3::TEXT[], $4::TEXT[]) AS data(email, name, company)
+      ON CONFLICT DO NOTHING
     `,
       [campaignId, emails, names, companies]
     );
-    inserted += chunk.length;
+    inserted += result.rowCount;
   }
 
   return inserted;
@@ -320,33 +321,43 @@ export async function getCampaignAssets(campaignId) {
 }
 
 export async function replaceCampaignAttachments(campaignId, attachments = []) {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS campaign_attachments (
-      id BIGSERIAL PRIMARY KEY,
-      campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
-      file_name VARCHAR(255) NOT NULL,
-      mime_type VARCHAR(120) NOT NULL,
-      content BYTEA NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_attachments_campaign_id ON campaign_attachments(campaign_id)`);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS campaign_attachments (
+        id BIGSERIAL PRIMARY KEY,
+        campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        file_name VARCHAR(255) NOT NULL,
+        mime_type VARCHAR(120) NOT NULL,
+        content BYTEA NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_campaign_attachments_campaign_id ON campaign_attachments(campaign_id)`);
 
-  await pool.query(`DELETE FROM campaign_attachments WHERE campaign_id = $1`, [campaignId]);
+    await client.query(`DELETE FROM campaign_attachments WHERE campaign_id = $1`, [campaignId]);
 
-  let written = 0;
-  for (const attachment of attachments) {
-    await pool.query(
-      `
-        INSERT INTO campaign_attachments (campaign_id, file_name, mime_type, content)
-        VALUES ($1, $2, $3, $4)
-      `,
-      [campaignId, attachment.fileName, attachment.mimeType, attachment.content]
-    );
-    written += 1;
+    let written = 0;
+    for (const attachment of attachments) {
+      await client.query(
+        `
+          INSERT INTO campaign_attachments (campaign_id, file_name, mime_type, content)
+          VALUES ($1, $2, $3, $4)
+        `,
+        [campaignId, attachment.fileName, attachment.mimeType, attachment.content]
+      );
+      written += 1;
+    }
+
+    await client.query("COMMIT");
+    return written;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
   }
-
-  return written;
 }
 
 export async function getCampaignAttachments(campaignId) {

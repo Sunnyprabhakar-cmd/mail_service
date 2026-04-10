@@ -72,6 +72,19 @@ async function runMigrations() {
 
   await pool.query(
     `
+      DELETE FROM recipients a
+      USING recipients b
+      WHERE a.campaign_id = b.campaign_id
+        AND LOWER(a.email) = LOWER(b.email)
+        AND a.id > b.id
+    `
+  );
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_recipients_campaign_email_lower_unique ON recipients (campaign_id, LOWER(email))`
+  );
+
+  await pool.query(
+    `
     DO $$
     BEGIN
       IF NOT EXISTS (

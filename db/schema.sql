@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS recipients (
   company VARCHAR(255),
   status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
   error TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (campaign_id, email)
 );
 
 CREATE TABLE IF NOT EXISTS campaign_assets (
@@ -36,4 +37,5 @@ CREATE TABLE IF NOT EXISTS campaign_assets (
 
 CREATE INDEX IF NOT EXISTS idx_recipients_campaign_status ON recipients(campaign_id, status);
 CREATE INDEX IF NOT EXISTS idx_recipients_email ON recipients(email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recipients_campaign_email_lower_unique ON recipients(campaign_id, LOWER(email));
 CREATE INDEX IF NOT EXISTS idx_campaign_assets_campaign_id ON campaign_assets(campaign_id);

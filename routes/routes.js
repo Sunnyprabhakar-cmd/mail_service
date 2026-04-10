@@ -20,11 +20,10 @@ router.get("/health", getHealth);
 router.get("/campaigns", getCampaigns);
 router.post("/campaigns/upload", uploadCampaignForm, uploadCampaignCsv);
 router.post("/campaigns/:id/send", requireCampaignAccess, sendCampaign);
-router.post("/campaigns/:id/send-test", sendCampaignTest);
-router.post("/campaigns/send-test", sendCampaignTest);
-router.get("/campaigns/:id/status", campaignStatus);
-router.get("/campaigns/:id/progress", campaignProgress);
-router.get("/campaigns/:id/events", campaignEvents);
+router.post("/campaigns/:id/send-test", requireCampaignAccess, sendCampaignTest);
+router.get("/campaigns/:id/status", requireCampaignAccess, campaignStatus);
+router.get("/campaigns/:id/progress", requireCampaignAccess, campaignProgress);
+router.get("/campaigns/:id/events", requireCampaignAccess, campaignEvents);
 router.post("/webhooks/mailgun", handleMailgunWebhook);
 
 export default router;

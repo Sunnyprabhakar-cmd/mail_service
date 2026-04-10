@@ -185,6 +185,13 @@ export async function sendCampaign(req, res, next) {
       return res.status(404).json({ error: "Campaign not found" });
     }
 
+    if (campaign.import_status !== "completed") {
+      return res.status(409).json({
+        error: "Campaign import must finish before sending",
+        importStatus: campaign.import_status
+      });
+    }
+
     const cidMatches = String(campaign.template || "").match(/cid:([a-zA-Z0-9._-]+)/g) || [];
     if (cidMatches.length > 0) {
       const expectedCids = [...new Set(cidMatches.map((entry) => entry.replace("cid:", "").trim()).filter(Boolean))];
