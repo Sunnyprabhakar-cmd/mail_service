@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import {
   appendCampaignEvent,
+  findMostRecentCampaignForRecipientEmail,
   findRecipientMessageMapping,
   updateCampaignStatusIfComplete,
   updateRecipientStatusByEmail
@@ -89,6 +90,9 @@ function extractMessageId(eventData) {
   const headers = (message.headers && typeof message.headers === "object") ? message.headers : {};
   const raw = String(
     eventData?.["message-id"]
+      || eventData?.messageId
+      || eventData?.["Message-Id"]
+      || eventData?.["Message-ID"]
       || headers["message-id"]
       || headers["Message-Id"]
       || headers["Message-ID"]
@@ -104,6 +108,10 @@ function extractWebhookFields(body) {
   const parsedBody = parseMaybeJson(body) || {};
   const eventDataRaw = parseMaybeJson(parsedBody["event-data"] || parsedBody.eventData) || {};
   const eventData = typeof eventDataRaw === "object" && eventDataRaw !== null ? eventDataRaw : {};
+  const topLevelUserVariablesRaw = parseMaybeJson(parsedBody["user-variables"] || parsedBody.userVariables) || {};
+  const topLevelUserVariables = (typeof topLevelUserVariablesRaw === "object" && topLevelUserVariablesRaw !== null)
+    ? topLevelUserVariablesRaw
+    : {};
   const message = (eventData.message && typeof eventData.message === "object") ? eventData.message : {};
   const userVariables = (eventData["user-variables"] && typeof eventData["user-variables"] === "object")
     ? eventData["user-variables"]
@@ -128,6 +136,8 @@ function extractWebhookFields(body) {
   const campaignId = coerceCampaignId(
     parsedBody.campaignId
       || parsedBody.campaign_id
+      || topLevelUserVariables.campaignId
+      || topLevelUserVariables.campaign_id
       || userVariables.campaignId
       || userVariables.campaign_id
       || headers["X-Campaign-Id"]
@@ -142,7 +152,14 @@ function extractWebhookFields(body) {
       || ""
   ).trim();
 
-  const messageId = extractMessageId(eventData);
+  const messageId = String(
+    extractMessageId(eventData)
+      || parsedBody["message-id"]
+      || parsedBody.messageId
+      || parsedBody["Message-Id"]
+      || parsedBody["Message-ID"]
+      || ""
+  ).trim().replace(/^<|>$/g, "");
 
   return {
     normalizedEvent,
@@ -185,6 +202,13 @@ export async function handleMailgunWebhook(req, res, next) {
         if (!resolvedRecipient) {
           resolvedRecipient = String(mapped.recipient_email || "").trim();
         }
+      }
+    }
+
+    if (!resolvedCampaignId && resolvedRecipient) {
+      const inferred = await findMostRecentCampaignForRecipientEmail(resolvedRecipient);
+      if (inferred?.campaign_id) {
+        resolvedCampaignId = Number(inferred.campaign_id);
       }
     }
 

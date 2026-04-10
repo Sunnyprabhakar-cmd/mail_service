@@ -400,6 +400,27 @@ export async function updateRecipientStatusByEmail(campaignId, email, status, er
   return result.rows;
 }
 
+export async function findMostRecentCampaignForRecipientEmail(email) {
+  const cleanEmail = String(email || "").trim();
+  if (!cleanEmail) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT r.campaign_id, r.id AS recipient_id, r.email AS recipient_email
+      FROM recipients r
+      JOIN campaigns c ON c.id = r.campaign_id
+      WHERE LOWER(r.email) = LOWER($1)
+      ORDER BY c.created_at DESC, r.id DESC
+      LIMIT 1
+    `,
+    [cleanEmail]
+  );
+
+  return result.rows[0] || null;
+}
+
 let campaignEventsSchemaReady = false;
 let recipientMessageMapSchemaReady = false;
 
