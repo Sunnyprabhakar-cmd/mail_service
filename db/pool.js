@@ -16,7 +16,15 @@ function resolveSslConfig() {
 
   const sslModeForcesTls = ["require", "verify-ca", "verify-full"].includes(rawSslMode);
   const urlForcesTls = /[?&]sslmode=require(?:&|$)/i.test(dbUrl);
-  const autoEnablesTls = rawToggle === "auto" && !isLocalRuntime;
+  let hostLooksInternal = false;
+  try {
+    const parsed = new URL(dbUrl);
+    hostLooksInternal = /\.internal$/i.test(parsed.hostname) || /render\.internal$/i.test(parsed.hostname);
+  } catch {
+    hostLooksInternal = false;
+  }
+
+  const autoEnablesTls = rawToggle === "auto" && !isLocalRuntime && !hostLooksInternal;
   const shouldUseTls =
     ["true", "1", "yes", "on", "require"].includes(rawToggle) ||
     sslModeForcesTls ||
