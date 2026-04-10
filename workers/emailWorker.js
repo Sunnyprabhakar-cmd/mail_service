@@ -40,6 +40,33 @@ const stopHeartbeat = startWorkerHeartbeat(redisConnection, {
 	logger
 });
 
+// Avoid hammering Postgres with completion checks after every single recipient update.
+const campaignCompletionCheckAt = new Map();
+const CAMPAIGN_COMPLETION_CHECK_INTERVAL_MS = 5000;
+
+async function maybeUpdateCampaignCompletion(campaignId) {
+	const id = Number(campaignId);
+	if (!Number.isInteger(id) || id <= 0) {
+		return;
+	}
+
+	const now = Date.now();
+	const last = Number(campaignCompletionCheckAt.get(id) || 0);
+	if (now - last < CAMPAIGN_COMPLETION_CHECK_INTERVAL_MS) {
+		return;
+	}
+
+	campaignCompletionCheckAt.set(id, now);
+	try {
+		await updateCampaignStatusIfComplete(id);
+	} catch (error) {
+		logger.warn("Campaign completion check failed", {
+			campaignId: id,
+			error: error?.message || String(error)
+		});
+	}
+}
+
 function fallbackNameFromEmail(email) {
 	const local = String(email || "").split("@")[0] || "";
 	if (!local) {
@@ -108,7 +135,7 @@ const worker = new Worker(
 			await appendCampaignEvent(record.campaign_id, record.email, "delivered", {
 				_source: "mailgun-worker"
 			});
-			await updateCampaignStatusIfComplete(record.campaign_id);
+			await maybeUpdateCampaignCompletion(record.campaign_id);
 
 			logger.info("Email sent", {
 				recipientId: record.recipient_id,
@@ -126,6 +153,7 @@ const worker = new Worker(
 				_source: "mailgun-worker",
 				error: errorMessage
 			});
+			await maybeUpdateCampaignCompletion(record.campaign_id);
 			logger.error("Email send failed", {
 				recipientId: record.recipient_id,
 				campaignId: record.campaign_id,
