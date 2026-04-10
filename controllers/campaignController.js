@@ -316,6 +316,7 @@ export async function sendCampaignTest(req, res, next) {
       subject,
       html,
       replyTo,
+      campaignId,
       inlineAssets,
       attachments
     });

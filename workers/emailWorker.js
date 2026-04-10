@@ -79,6 +79,7 @@ const worker = new Worker(
 				subject,
 				html,
 				replyTo: record.reply_to_email,
+				campaignId: record.campaign_id,
 				inlineAssets,
 				attachments
 			});

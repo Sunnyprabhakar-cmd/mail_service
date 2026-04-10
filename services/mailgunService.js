@@ -11,7 +11,7 @@ const mailgunClient = axios.create({
   timeout: 15000
 });
 
-export async function sendMailgunEmail({ to, subject, html, replyTo, inlineAssets = [], attachments = [] }) {
+export async function sendMailgunEmail({ to, subject, html, replyTo, campaignId, inlineAssets = [], attachments = [] }) {
   const body = new FormData();
   body.append("from", env.mailgunFrom);
   body.append("to", to);
@@ -19,6 +19,11 @@ export async function sendMailgunEmail({ to, subject, html, replyTo, inlineAsset
   body.append("html", html);
   if (String(replyTo || "").trim()) {
     body.append("h:Reply-To", String(replyTo).trim());
+  }
+  if (campaignId !== undefined && campaignId !== null && String(campaignId).trim()) {
+    const campaignValue = String(campaignId).trim();
+    body.append("v:campaignId", campaignValue);
+    body.append("h:X-Campaign-Id", campaignValue);
   }
 
   for (const asset of inlineAssets) {
