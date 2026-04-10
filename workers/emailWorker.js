@@ -4,6 +4,7 @@ import { EMAIL_QUEUE_NAME } from "../queue/emailQueue.js";
 import { redisConnection } from "../queue/redis.js";
 import { env } from "../config/env.js";
 import {
+  appendCampaignEvent,
 	getCampaignAssets,
 	getCampaignAttachments,
 	getRecipientWithCampaign,
@@ -85,6 +86,9 @@ const worker = new Worker(
 			});
 
 			await markRecipientAsSent(record.recipient_id);
+			await appendCampaignEvent(record.campaign_id, record.email, "delivered", {
+				_source: "mailgun-worker"
+			});
 			await updateCampaignStatusIfComplete(record.campaign_id);
 
 			logger.info("Email sent", {
@@ -99,6 +103,10 @@ const worker = new Worker(
 			const errorStatus = error?.response?.status;
 
 			await markRecipientAsFailed(record.recipient_id, errorMessage);
+			await appendCampaignEvent(record.campaign_id, record.email, "failed", {
+				_source: "mailgun-worker",
+				error: errorMessage
+			});
 			logger.error("Email send failed", {
 				recipientId: record.recipient_id,
 				campaignId: record.campaign_id,

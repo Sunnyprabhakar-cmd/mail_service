@@ -103,23 +103,28 @@ export async function handleMailgunWebhook(req, res, next) {
       return res.status(400).json({ error: "event, recipient and campaignId are required" });
     }
 
+    const successEvents = new Set(["accepted", "delivered", "opened", "clicked"]);
+    const failureEvents = new Set(["failed", "bounced", "rejected", "complained"]);
+
+    if (!successEvents.has(normalizedEvent) && !failureEvents.has(normalizedEvent)) {
+      return res.status(200).json({ message: "Event ignored", event: normalizedEvent });
+    }
+
     let status = "pending";
     let error = null;
 
-    if (["delivered", "opened"].includes(normalizedEvent)) {
-      status = "sent";
-    } else if (["failed", "bounced", "rejected", "complained"].includes(normalizedEvent)) {
+    if (failureEvents.has(normalizedEvent)) {
       status = "failed";
       error = reason || `Mailgun event: ${normalizedEvent}`;
     } else {
-      return res.status(200).json({ message: "Event ignored", event: normalizedEvent });
+      status = "sent";
     }
 
     const updatedRows = await updateRecipientStatusByEmail(numericCampaignId, recipient, status, error);
     await appendCampaignEvent(numericCampaignId, recipient, normalizedEvent, {
       status,
       reason: reason || null,
-      source: "mailgun-webhook",
+      _source: "mailgun-webhook",
       eventData,
       userVariables
     });
