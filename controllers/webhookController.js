@@ -195,7 +195,11 @@ export async function handleMailgunWebhook(req, res, next) {
         hasCampaignId: Boolean(resolvedCampaignId),
         hasMessageId: Boolean(messageId)
       });
-      return res.status(400).json({ error: "event, recipient and campaignId are required" });
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        reason: "Missing event, recipient, or campaign correlation"
+      });
     }
 
     const successEvents = new Set(["accepted", "delivered", "opened", "clicked"]);
