@@ -1,11 +1,12 @@
 import multer from "multer";
 
 const storage = multer.memoryStorage();
+export const CSV_UPLOAD_MAX_BYTES = Math.max(1, Number(process.env.CSV_UPLOAD_MAX_BYTES || 50 * 1024 * 1024));
 
 export const uploadCsv = multer({
   storage,
   limits: {
-    fileSize: 50 * 1024 * 1024
+    fileSize: CSV_UPLOAD_MAX_BYTES
   },
   fileFilter: (_req, file, cb) => {
     if (file.fieldname === "file") {

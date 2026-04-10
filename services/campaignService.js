@@ -3,6 +3,7 @@ import csvParser from "csv-parser";
 import { batchInsertRecipients, setCampaignImportStatus } from "../db/queries.js";
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
+const CSV_MAX_COLUMNS = Math.max(1, Number(process.env.CSV_MAX_COLUMNS || 5000));
 
 function normalizeHeaderKey(key) {
   return String(key || "")
@@ -91,6 +92,13 @@ export async function ingestRecipientsFromCsvBuffer({ campaignId, csvBuffer, bat
     let settled = false;
     let activeRowHandlers = 0;
     let streamEnded = false;
+
+    parser.on("headers", (headers) => {
+      const count = Array.isArray(headers) ? headers.length : 0;
+      if (count > CSV_MAX_COLUMNS) {
+        parser.destroy(new Error(`CSV has too many columns (${count}). Maximum supported columns: ${CSV_MAX_COLUMNS}.`));
+      }
+    });
 
     const finishSuccess = async () => {
       if (settled) {
