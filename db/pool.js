@@ -14,14 +14,10 @@ function resolveSslConfig() {
 
   const sslModeForcesTls = ["require", "verify-ca", "verify-full"].includes(rawSslMode);
   const urlForcesTls = /[?&]sslmode=require(?:&|$)/i.test(dbUrl);
-  const isRenderRuntime = String(process.env.RENDER || "").toLowerCase() === "true";
-  const looksLikeRenderDbHost = /render\.com|render\.internal/i.test(dbUrl);
   const shouldUseTls =
     ["true", "1", "yes", "on", "require"].includes(rawToggle) ||
     sslModeForcesTls ||
-    urlForcesTls ||
-    isRenderRuntime ||
-    looksLikeRenderDbHost;
+    urlForcesTls;
 
   if (!shouldUseTls) {
     return false;

@@ -16,7 +16,16 @@ function sleep(ms) {
 
 function isRetryableMigrationError(error) {
   const code = String(error?.code || "").toUpperCase();
-  return ["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ETIMEDOUT", "57P03"].includes(code);
+  const message = String(error?.message || "").toLowerCase();
+  if (["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ETIMEDOUT", "ECONNRESET", "57P03", "08006", "08001"].includes(code)) {
+    return true;
+  }
+
+  return (
+    message.includes("connection terminated unexpectedly") ||
+    message.includes("server closed the connection unexpectedly") ||
+    message.includes("terminating connection due to administrator command")
+  );
 }
 
 async function runMigrations() {
