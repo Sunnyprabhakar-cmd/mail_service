@@ -23,12 +23,14 @@ function verifyMailgunSignature(req) {
       || signatureBlock.token
       || ""
     ).trim();
-    const providedSignature = String(
-      req.body?.signature
-      || req.body?.["signature[signature]"]
-      || signatureBlock.signature
-      || ""
-    ).trim();
+    const providedSignatureRaw = (typeof req.body?.signature === "string")
+      ? req.body.signature
+      : (
+        req.body?.["signature[signature]"]
+        || signatureBlock.signature
+        || ""
+      );
+    const providedSignature = String(providedSignatureRaw).trim().toLowerCase();
 
     if (!timestamp || !token || !providedSignature) {
       logger.warn("Mailgun webhook: missing timestamp, token, or signature");
@@ -44,7 +46,8 @@ function verifyMailgunSignature(req) {
     const expectedSignature = crypto
       .createHmac("sha256", env.webhookSecret)
       .update(data)
-      .digest("hex");
+      .digest("hex")
+      .toLowerCase();
 
     const provided = Buffer.from(providedSignature, "utf8");
     const expected = Buffer.from(String(expectedSignature), "utf8");
