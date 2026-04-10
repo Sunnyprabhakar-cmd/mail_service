@@ -246,6 +246,54 @@ export async function sendCampaign(req, res, next) {
   }
 }
 
+export async function retryPendingCampaignRecipients(req, res, next) {
+  try {
+    const campaignId = Number(req.params.id);
+    if (!Number.isInteger(campaignId) || campaignId <= 0) {
+      return res.status(400).json({ error: "Invalid campaign id" });
+    }
+
+    const campaign = await getCampaignById(campaignId);
+    if (!campaign) {
+      return res.status(404).json({ error: "Campaign not found" });
+    }
+
+    const workerHealth = await readWorkerHeartbeat(redisConnection);
+    if (workerHealth.status !== "online") {
+      return res.status(503).json({
+        error: "Email worker is not online. Start worker service (or enable RUN_WORKER_IN_API=true) before retrying pending recipients.",
+        worker: workerHealth
+      });
+    }
+
+    const pendingRecipients = await getPendingRecipientsByCampaign(campaignId);
+    if (pendingRecipients.length === 0) {
+      await updateCampaignStatusIfComplete(campaignId);
+      return res.status(200).json({
+        message: "No pending recipients to requeue",
+        campaignId,
+        queuedJobs: 0,
+        duplicateJobs: 0,
+        pendingRecipients: 0
+      });
+    }
+
+    const sendBatchId = randomUUID();
+    const enqueueResult = await enqueueCampaignRecipients(pendingRecipients, 2000, sendBatchId);
+
+    return res.status(202).json({
+      message: "Pending recipients requeued",
+      campaignId,
+      sendBatchId,
+      queuedJobs: enqueueResult.queued,
+      duplicateJobs: enqueueResult.duplicates,
+      pendingRecipients: pendingRecipients.length
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function getCampaigns(req, res, next) {
   try {
     const limit = Number(req.query?.limit || 50);

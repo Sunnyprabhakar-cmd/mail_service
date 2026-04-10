@@ -8,6 +8,7 @@ import {
 	getCampaigns,
 	campaignProgress,
 	campaignStatus,
+	retryPendingCampaignRecipients,
 	sendCampaignTest,
 	sendCampaign,
 	uploadCampaignCsv
@@ -21,6 +22,7 @@ router.get("/health", getHealth);
 router.get("/campaigns", getCampaigns);
 router.post("/campaigns/upload", uploadCampaignForm, uploadCampaignCsv);
 router.post("/campaigns/:id/send", requireCampaignAccess, sendCampaign);
+router.post("/campaigns/:id/retry-pending", requireCampaignAccess, retryPendingCampaignRecipients);
 router.post("/campaigns/:id/send-test", requireCampaignAccess, sendCampaignTest);
 router.get("/campaigns/:id/status", campaignStatus);
 router.get("/campaigns/:id/progress", campaignProgress);
