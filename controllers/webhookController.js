@@ -20,12 +20,22 @@ function verifyMailgunSignature(req) {
     }
 
     const data = `${timestamp}${token}`;
+    if (!env.webhookSecret) {
+      logger.warn("Mailgun webhook signing secret is not configured");
+      return false;
+    }
+
     const expectedSignature = crypto
-      .createHmac("sha256", env.mailgunApiKey)
+      .createHmac("sha256", env.webhookSecret)
       .update(data)
       .digest("hex");
 
-    return signature === expectedSignature;
+    const provided = Buffer.from(String(signature), "utf8");
+    const expected = Buffer.from(String(expectedSignature), "utf8");
+    if (provided.length !== expected.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(provided, expected);
   } catch (error) {
     logger.error("Error verifying Mailgun signature", { error: error.message });
     return false;
@@ -128,15 +138,14 @@ function extractWebhookFields(body) {
 
 export async function handleMailgunWebhook(req, res, next) {
   try {
-    if (env.webhookSecret) {
-      const incomingSecret = req.headers["x-webhook-secret"];
-      if (incomingSecret !== env.webhookSecret) {
-        return res.status(401).json({ error: "Unauthorized webhook" });
-      }
-        // Verify Mailgun signature using HMAC-SHA256
-        if (!verifyMailgunSignature(req)) {
-          logger.warn("Mailgun webhook signature verification failed");
-          return res.status(401).json({ error: "Unauthorized webhook" });
+    // Verify Mailgun signature using HMAC-SHA256
+    if (!verifyMailgunSignature(req)) {
+      logger.warn("Mailgun webhook signature verification failed");
+      return res.status(401).json({ error: "Unauthorized webhook" });
+    }
+
+    const {
+      normalizedEvent,
       recipient,
       campaignId,
       reason,
