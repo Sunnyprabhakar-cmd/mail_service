@@ -43,11 +43,24 @@ export async function sendMailgunEmail({ to, subject, html, replyTo, inlineAsset
     });
   }
 
-  const response = await mailgunClient.post("/messages", body, {
-    headers: {
-      ...body.getHeaders()
-    }
-  });
+  try {
+    const response = await mailgunClient.post("/messages", body, {
+      headers: {
+        ...body.getHeaders()
+      }
+    });
 
-  return response.data;
+    return response.data;
+  } catch (error) {
+    const status = error?.response?.status;
+    const data = error?.response?.data;
+    const message = typeof data === "string"
+      ? data
+      : String(data?.message || data?.error || error.message || "Mailgun send failed");
+
+    const details = status ? `Mailgun ${status}: ${message}` : message;
+    const wrapped = new Error(details);
+    wrapped.cause = error;
+    throw wrapped;
+  }
 }

@@ -94,12 +94,15 @@ const worker = new Worker(
 
 			return { success: true };
 		} catch (error) {
-			const errorMessage = error.response?.data?.message || error.message;
+			const errorMessage = error?.message || error?.response?.data?.message || String(error);
+			const errorStatus = error?.response?.status;
 
 			await markRecipientAsFailed(record.recipient_id, errorMessage);
 			logger.error("Email send failed", {
 				recipientId: record.recipient_id,
 				campaignId: record.campaign_id,
+				status: errorStatus,
+				response: error?.response?.data,
 				error: errorMessage
 			});
 
