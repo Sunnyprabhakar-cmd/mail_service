@@ -400,6 +400,91 @@ export async function updateRecipientStatusByEmail(campaignId, email, status, er
   return result.rows;
 }
 
+let campaignEventsSchemaReady = false;
+
+async function ensureCampaignEventsSchema() {
+  if (campaignEventsSchemaReady) {
+    return;
+  }
+
+  await pool.query(
+    `
+      CREATE TABLE IF NOT EXISTS campaign_events (
+        id BIGSERIAL PRIMARY KEY,
+        campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        recipient_email VARCHAR(320) NOT NULL,
+        event_type VARCHAR(40) NOT NULL,
+        payload JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+  );
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_events_campaign_id_created_at ON campaign_events(campaign_id, created_at DESC)`);
+  campaignEventsSchemaReady = true;
+}
+
+export async function appendCampaignEvent(campaignId, recipientEmail, eventType, payload = {}) {
+  try {
+    await ensureCampaignEventsSchema();
+    await pool.query(
+      `
+        INSERT INTO campaign_events (campaign_id, recipient_email, event_type, payload)
+        VALUES ($1, $2, $3, $4::jsonb)
+      `,
+      [campaignId, recipientEmail, String(eventType || "").toLowerCase(), JSON.stringify(payload || {})]
+    );
+  } catch (error) {
+    if (error?.code === "42P01") {
+      campaignEventsSchemaReady = false;
+      await ensureCampaignEventsSchema();
+      await pool.query(
+        `
+          INSERT INTO campaign_events (campaign_id, recipient_email, event_type, payload)
+          VALUES ($1, $2, $3, $4::jsonb)
+        `,
+        [campaignId, recipientEmail, String(eventType || "").toLowerCase(), JSON.stringify(payload || {})]
+      );
+      return;
+    }
+    throw error;
+  }
+}
+
+export async function listCampaignEvents(campaignId, limit = 200) {
+  const boundedLimit = Math.max(1, Math.min(500, Number(limit) || 200));
+  try {
+    await ensureCampaignEventsSchema();
+    const result = await pool.query(
+      `
+        SELECT id, campaign_id, recipient_email, event_type, payload, created_at
+        FROM campaign_events
+        WHERE campaign_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+      `,
+      [campaignId, boundedLimit]
+    );
+    return result.rows;
+  } catch (error) {
+    if (error?.code === "42P01") {
+      campaignEventsSchemaReady = false;
+      await ensureCampaignEventsSchema();
+      const result = await pool.query(
+        `
+          SELECT id, campaign_id, recipient_email, event_type, payload, created_at
+          FROM campaign_events
+          WHERE campaign_id = $1
+          ORDER BY created_at DESC
+          LIMIT $2
+        `,
+        [campaignId, boundedLimit]
+      );
+      return result.rows;
+    }
+    throw error;
+  }
+}
+
 export async function deleteOldCampaigns(days) {
   const result = await pool.query(
     `

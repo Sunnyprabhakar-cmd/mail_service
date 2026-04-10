@@ -1,4 +1,5 @@
 import {
+  appendCampaignEvent,
   updateCampaignStatusIfComplete,
   updateRecipientStatusByEmail
 } from "../db/queries.js";
@@ -39,6 +40,11 @@ export async function handleMailgunWebhook(req, res, next) {
     }
 
     const updatedRows = await updateRecipientStatusByEmail(numericCampaignId, recipient, status, error);
+    await appendCampaignEvent(numericCampaignId, recipient, normalizedEvent, {
+      status,
+      reason: reason || null,
+      source: "mailgun-webhook"
+    });
     await updateCampaignStatusIfComplete(numericCampaignId);
 
     logger.info("Mailgun webhook processed", {

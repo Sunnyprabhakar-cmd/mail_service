@@ -1,6 +1,7 @@
 import {
   createCampaign,
   listCampaigns,
+  listCampaignEvents,
   getCampaignById,
   getCampaignAssets,
   getCampaignAttachments,
@@ -414,6 +415,36 @@ export async function campaignEvents(req, res, next) {
     req.on("close", () => {
       clearInterval(timer);
     });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function campaignEventsList(req, res, next) {
+  try {
+    const campaignId = Number(req.params.id);
+    if (!Number.isInteger(campaignId) || campaignId <= 0) {
+      return res.status(400).json({ error: "Invalid campaign id" });
+    }
+
+    const campaign = await getCampaignById(campaignId);
+    if (!campaign) {
+      return res.status(404).json({ error: "Campaign not found" });
+    }
+
+    const limit = Number(req.query.limit || 200);
+    const rows = await listCampaignEvents(campaignId, limit);
+
+    return res.status(200).json(
+      rows.map((row) => ({
+        id: String(row.id),
+        campaignId: String(row.campaign_id),
+        recipientEmail: String(row.recipient_email || ""),
+        type: String(row.event_type || "failed"),
+        payload: row.payload || {},
+        createdAt: row.created_at
+      }))
+    );
   } catch (error) {
     return next(error);
   }
