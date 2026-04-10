@@ -15,23 +15,8 @@ export const uploadCsv = multer({
       return cb(null, true);
     }
 
-    if (file.fieldname === "assetFiles") {
-      if (!String(file.mimetype || "").startsWith("image/")) {
-        return cb(new Error("Only image files are allowed for assetFiles"));
-      }
-      return cb(null, true);
-    }
-
-    if (file.fieldname === "attachmentFiles") {
-      return cb(null, true);
-    }
-
-    return cb(new Error(`Unexpected file field: ${file.fieldname}`));
+    return cb(null, true);
   }
 });
 
-export const uploadCampaignForm = uploadCsv.fields([
-  { name: "file", maxCount: 1 },
-  { name: "assetFiles", maxCount: 40 },
-  { name: "attachmentFiles", maxCount: 20 }
-]);
+export const uploadCampaignForm = uploadCsv.any();

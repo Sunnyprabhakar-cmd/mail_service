@@ -55,12 +55,38 @@ async function buildCampaignProgress(campaignId) {
   };
 }
 
+function groupUploadedFiles(files) {
+  const buckets = {
+    file: [],
+    assetFiles: [],
+    attachmentFiles: []
+  };
+
+  for (const file of Array.isArray(files) ? files : []) {
+    const fieldname = String(file?.fieldname || "");
+    if (fieldname === "file") {
+      buckets.file.push(file);
+      continue;
+    }
+    if (fieldname === "assetFiles") {
+      buckets.assetFiles.push(file);
+      continue;
+    }
+    if (fieldname === "attachmentFiles") {
+      buckets.attachmentFiles.push(file);
+    }
+  }
+
+  return buckets;
+}
+
 export async function uploadCampaignCsv(req, res, next) {
   try {
     const { name, subject, template, replyToEmail } = req.body;
-    const file = req.files?.file?.[0];
-    const uploadedAssets = Array.isArray(req.files?.assetFiles) ? req.files.assetFiles : [];
-    const uploadedAttachments = Array.isArray(req.files?.attachmentFiles) ? req.files.attachmentFiles : [];
+    const groupedFiles = groupUploadedFiles(req.files);
+    const file = groupedFiles.file[0];
+    const uploadedAssets = groupedFiles.assetFiles;
+    const uploadedAttachments = groupedFiles.attachmentFiles;
     let assetManifest = [];
     let attachmentManifest = [];
     try {
