@@ -35,7 +35,18 @@ CREATE TABLE IF NOT EXISTS campaign_assets (
   UNIQUE (campaign_id, cid)
 );
 
+CREATE TABLE IF NOT EXISTS recipient_message_map (
+  id BIGSERIAL PRIMARY KEY,
+  campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  recipient_id BIGINT,
+  recipient_email VARCHAR(320) NOT NULL,
+  message_id VARCHAR(255) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_recipients_campaign_status ON recipients(campaign_id, status);
 CREATE INDEX IF NOT EXISTS idx_recipients_email ON recipients(email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recipients_campaign_email_lower_unique ON recipients(campaign_id, LOWER(email));
 CREATE INDEX IF NOT EXISTS idx_campaign_assets_campaign_id ON campaign_assets(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_recipient_message_map_campaign_id ON recipient_message_map(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_recipient_message_map_recipient_email ON recipient_message_map(LOWER(recipient_email));

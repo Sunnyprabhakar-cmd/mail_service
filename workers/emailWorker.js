@@ -10,7 +10,8 @@ import {
 	getRecipientWithCampaign,
 	markRecipientAsFailed,
 	markRecipientAsSent,
-	updateCampaignStatusIfComplete
+	updateCampaignStatusIfComplete,
+	upsertRecipientMessageMapping
 } from "../db/queries.js";
 import { personalizeTemplate } from "../services/templateService.js";
 import { sendMailgunEmail } from "../services/mailgunService.js";
@@ -50,6 +51,14 @@ function fallbackNameFromEmail(email) {
 		.trim();
 }
 
+function extractMailgunMessageId(payload) {
+	const raw = String(payload?.id || payload?.messageId || "").trim();
+	if (!raw) {
+		return "";
+	}
+	return raw.replace(/^<|>$/g, "");
+}
+
 const worker = new Worker(
 	EMAIL_QUEUE_NAME,
 	async (job) => {
@@ -75,7 +84,7 @@ const worker = new Worker(
 		const attachments = await getCampaignAttachments(record.campaign_id);
 
 		try {
-			await sendMailgunEmail({
+			const mailgunResult = await sendMailgunEmail({
 				to: record.email,
 				subject,
 				html,
@@ -84,6 +93,16 @@ const worker = new Worker(
 				inlineAssets,
 				attachments
 			});
+
+			const messageId = extractMailgunMessageId(mailgunResult);
+			if (messageId) {
+				await upsertRecipientMessageMapping({
+					campaignId: record.campaign_id,
+					recipientId: record.recipient_id,
+					recipientEmail: record.email,
+					messageId
+				});
+			}
 
 			await markRecipientAsSent(record.recipient_id);
 			await appendCampaignEvent(record.campaign_id, record.email, "delivered", {

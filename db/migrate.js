@@ -86,6 +86,21 @@ async function runMigrations() {
 
   await pool.query(
     `
+      CREATE TABLE IF NOT EXISTS recipient_message_map (
+        id BIGSERIAL PRIMARY KEY,
+        campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        recipient_id BIGINT,
+        recipient_email VARCHAR(320) NOT NULL,
+        message_id VARCHAR(255) NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+  );
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_recipient_message_map_campaign_id ON recipient_message_map(campaign_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_recipient_message_map_recipient_email ON recipient_message_map(LOWER(recipient_email))`);
+
+  await pool.query(
+    `
       DELETE FROM recipients a
       USING recipients b
       WHERE a.campaign_id = b.campaign_id

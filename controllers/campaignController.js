@@ -9,7 +9,8 @@ import {
   getPendingRecipientsByCampaign,
   replaceCampaignAttachments,
   upsertCampaignAssets,
-  updateCampaignStatusIfComplete
+  updateCampaignStatusIfComplete,
+  upsertRecipientMessageMapping
 } from "../db/queries.js";
 import { redisConnection } from "../queue/redis.js";
 import { enqueueCampaignRecipients } from "../queue/emailQueue.js";
@@ -21,6 +22,14 @@ import { personalizeTemplate } from "../services/templateService.js";
 import { sendMailgunEmail } from "../services/mailgunService.js";
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
+
+function extractMailgunMessageId(payload) {
+  const raw = String(payload?.id || payload?.messageId || "").trim();
+  if (!raw) {
+    return "";
+  }
+  return raw.replace(/^<|>$/g, "");
+}
 
 async function buildCampaignProgress(campaignId) {
   const campaign = await getCampaignById(campaignId);
@@ -320,6 +329,15 @@ export async function sendCampaignTest(req, res, next) {
       inlineAssets,
       attachments
     });
+
+    const messageId = extractMailgunMessageId(mailgunResult);
+    if (messageId) {
+      await upsertRecipientMessageMapping({
+        campaignId,
+        recipientEmail: to,
+        messageId
+      });
+    }
 
     return res.status(200).json({
       ok: true,

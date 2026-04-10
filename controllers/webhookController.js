@@ -1,5 +1,6 @@
 import {
   appendCampaignEvent,
+  findRecipientMessageMapping,
   updateCampaignStatusIfComplete,
   updateRecipientStatusByEmail
 } from "../db/queries.js";
@@ -27,6 +28,22 @@ function parseMaybeJson(value) {
   } catch {
     return value;
   }
+}
+
+function extractMessageId(eventData) {
+  const message = (eventData?.message && typeof eventData.message === "object") ? eventData.message : {};
+  const headers = (message.headers && typeof message.headers === "object") ? message.headers : {};
+  const raw = String(
+    eventData?.["message-id"]
+      || headers["message-id"]
+      || headers["Message-Id"]
+      || headers["Message-ID"]
+      || ""
+  ).trim();
+  if (!raw) {
+    return "";
+  }
+  return raw.replace(/^<|>$/g, "");
 }
 
 function extractWebhookFields(body) {
@@ -71,11 +88,14 @@ function extractWebhookFields(body) {
       || ""
   ).trim();
 
+  const messageId = extractMessageId(eventData);
+
   return {
     normalizedEvent,
     recipient,
     campaignId,
     reason,
+    messageId,
     eventData,
     userVariables
   };
@@ -93,13 +113,35 @@ export async function handleMailgunWebhook(req, res, next) {
     const {
       normalizedEvent,
       recipient,
-      campaignId: numericCampaignId,
+      campaignId,
       reason,
+      messageId,
       eventData,
       userVariables
     } = extractWebhookFields(req.body);
 
-    if (!normalizedEvent || !recipient || !numericCampaignId) {
+    let resolvedCampaignId = campaignId;
+    let resolvedRecipient = recipient;
+
+    if ((!resolvedCampaignId || !resolvedRecipient) && messageId) {
+      const mapped = await findRecipientMessageMapping(messageId);
+      if (mapped) {
+        if (!resolvedCampaignId) {
+          resolvedCampaignId = Number(mapped.campaign_id);
+        }
+        if (!resolvedRecipient) {
+          resolvedRecipient = String(mapped.recipient_email || "").trim();
+        }
+      }
+    }
+
+    if (!normalizedEvent || !resolvedRecipient || !resolvedCampaignId) {
+      logger.warn("Mailgun webhook ignored: missing correlation fields", {
+        hasEvent: Boolean(normalizedEvent),
+        hasRecipient: Boolean(resolvedRecipient),
+        hasCampaignId: Boolean(resolvedCampaignId),
+        hasMessageId: Boolean(messageId)
+      });
       return res.status(400).json({ error: "event, recipient and campaignId are required" });
     }
 
@@ -120,20 +162,22 @@ export async function handleMailgunWebhook(req, res, next) {
       status = "sent";
     }
 
-    const updatedRows = await updateRecipientStatusByEmail(numericCampaignId, recipient, status, error);
-    await appendCampaignEvent(numericCampaignId, recipient, normalizedEvent, {
+    const updatedRows = await updateRecipientStatusByEmail(resolvedCampaignId, resolvedRecipient, status, error);
+    await appendCampaignEvent(resolvedCampaignId, resolvedRecipient, normalizedEvent, {
       status,
       reason: reason || null,
       _source: "mailgun-webhook",
+      messageId: messageId || null,
       eventData,
       userVariables
     });
-    await updateCampaignStatusIfComplete(numericCampaignId);
+    await updateCampaignStatusIfComplete(resolvedCampaignId);
 
     logger.info("Mailgun webhook processed", {
       event: normalizedEvent,
-      recipient,
-      campaignId: numericCampaignId,
+      recipient: resolvedRecipient,
+      campaignId: resolvedCampaignId,
+      messageId: messageId || null,
       updates: updatedRows.length
     });
 

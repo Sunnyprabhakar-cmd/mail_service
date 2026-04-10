@@ -401,6 +401,7 @@ export async function updateRecipientStatusByEmail(campaignId, email, status, er
 }
 
 let campaignEventsSchemaReady = false;
+let recipientMessageMapSchemaReady = false;
 
 async function ensureCampaignEventsSchema() {
   if (campaignEventsSchemaReady) {
@@ -421,6 +422,28 @@ async function ensureCampaignEventsSchema() {
   );
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_events_campaign_id_created_at ON campaign_events(campaign_id, created_at DESC)`);
   campaignEventsSchemaReady = true;
+}
+
+async function ensureRecipientMessageMapSchema() {
+  if (recipientMessageMapSchemaReady) {
+    return;
+  }
+
+  await pool.query(
+    `
+      CREATE TABLE IF NOT EXISTS recipient_message_map (
+        id BIGSERIAL PRIMARY KEY,
+        campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        recipient_id BIGINT,
+        recipient_email VARCHAR(320) NOT NULL,
+        message_id VARCHAR(255) NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+  );
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_recipient_message_map_campaign_id ON recipient_message_map(campaign_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_recipient_message_map_recipient_email ON recipient_message_map(LOWER(recipient_email))`);
+  recipientMessageMapSchemaReady = true;
 }
 
 export async function appendCampaignEvent(campaignId, recipientEmail, eventType, payload = {}) {
@@ -480,6 +503,90 @@ export async function listCampaignEvents(campaignId, limit = 200) {
         [campaignId, boundedLimit]
       );
       return result.rows;
+    }
+    throw error;
+  }
+}
+
+export async function upsertRecipientMessageMapping({ campaignId, recipientId = null, recipientEmail, messageId }) {
+  const cleanCampaignId = Number(campaignId);
+  const cleanRecipientId = recipientId === null || recipientId === undefined ? null : Number(recipientId);
+  const cleanEmail = String(recipientEmail || "").trim();
+  const cleanMessageId = String(messageId || "").trim();
+
+  if (!Number.isInteger(cleanCampaignId) || cleanCampaignId <= 0 || !cleanEmail || !cleanMessageId) {
+    return null;
+  }
+
+  try {
+    await ensureRecipientMessageMapSchema();
+    const result = await pool.query(
+      `
+        INSERT INTO recipient_message_map (campaign_id, recipient_id, recipient_email, message_id)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (message_id)
+        DO UPDATE SET campaign_id = EXCLUDED.campaign_id,
+                      recipient_id = EXCLUDED.recipient_id,
+                      recipient_email = EXCLUDED.recipient_email
+        RETURNING campaign_id, recipient_id, recipient_email, message_id
+      `,
+      [cleanCampaignId, Number.isInteger(cleanRecipientId) && cleanRecipientId > 0 ? cleanRecipientId : null, cleanEmail, cleanMessageId]
+    );
+    return result.rows[0] || null;
+  } catch (error) {
+    if (error?.code === "42P01") {
+      recipientMessageMapSchemaReady = false;
+      await ensureRecipientMessageMapSchema();
+      const result = await pool.query(
+        `
+          INSERT INTO recipient_message_map (campaign_id, recipient_id, recipient_email, message_id)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (message_id)
+          DO UPDATE SET campaign_id = EXCLUDED.campaign_id,
+                        recipient_id = EXCLUDED.recipient_id,
+                        recipient_email = EXCLUDED.recipient_email
+          RETURNING campaign_id, recipient_id, recipient_email, message_id
+        `,
+        [cleanCampaignId, Number.isInteger(cleanRecipientId) && cleanRecipientId > 0 ? cleanRecipientId : null, cleanEmail, cleanMessageId]
+      );
+      return result.rows[0] || null;
+    }
+    throw error;
+  }
+}
+
+export async function findRecipientMessageMapping(messageId) {
+  const cleanMessageId = String(messageId || "").trim();
+  if (!cleanMessageId) {
+    return null;
+  }
+
+  try {
+    await ensureRecipientMessageMapSchema();
+    const result = await pool.query(
+      `
+        SELECT campaign_id, recipient_id, recipient_email, message_id
+        FROM recipient_message_map
+        WHERE message_id = $1
+        LIMIT 1
+      `,
+      [cleanMessageId]
+    );
+    return result.rows[0] || null;
+  } catch (error) {
+    if (error?.code === "42P01") {
+      recipientMessageMapSchemaReady = false;
+      await ensureRecipientMessageMapSchema();
+      const result = await pool.query(
+        `
+          SELECT campaign_id, recipient_id, recipient_email, message_id
+          FROM recipient_message_map
+          WHERE message_id = $1
+          LIMIT 1
+        `,
+        [cleanMessageId]
+      );
+      return result.rows[0] || null;
     }
     throw error;
   }
