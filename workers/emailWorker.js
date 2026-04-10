@@ -131,10 +131,12 @@ const worker = new Worker(
 				});
 			}
 
-			await markRecipientAsSent(record.recipient_id);
-			await appendCampaignEvent(record.campaign_id, record.email, "delivered", {
-				_source: "mailgun-worker"
-			});
+			await Promise.all([
+				markRecipientAsSent(record.recipient_id),
+				appendCampaignEvent(record.campaign_id, record.email, "delivered", {
+					_source: "mailgun-worker"
+				})
+			]);
 			await maybeUpdateCampaignCompletion(record.campaign_id);
 
 			logger.info("Email sent", {
@@ -148,11 +150,13 @@ const worker = new Worker(
 			const errorMessage = error?.message || error?.response?.data?.message || String(error);
 			const errorStatus = error?.response?.status;
 
-			await markRecipientAsFailed(record.recipient_id, errorMessage);
-			await appendCampaignEvent(record.campaign_id, record.email, "failed", {
-				_source: "mailgun-worker",
-				error: errorMessage
-			});
+			await Promise.all([
+				markRecipientAsFailed(record.recipient_id, errorMessage),
+				appendCampaignEvent(record.campaign_id, record.email, "failed", {
+					_source: "mailgun-worker",
+					error: errorMessage
+				})
+			]);
 			await maybeUpdateCampaignCompletion(record.campaign_id);
 			logger.error("Email send failed", {
 				recipientId: record.recipient_id,
