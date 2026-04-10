@@ -10,11 +10,27 @@ import { logger } from "../services/logger.js";
 
 function verifyMailgunSignature(req) {
   try {
-    const timestamp = req.body.timestamp;
-    const token = req.body.token;
-    const signature = req.body.signature;
+    const signatureBlock = (req.body && typeof req.body.signature === "object") ? req.body.signature : {};
+    const timestamp = String(
+      req.body?.timestamp
+      || req.body?.["signature[timestamp]"]
+      || signatureBlock.timestamp
+      || ""
+    ).trim();
+    const token = String(
+      req.body?.token
+      || req.body?.["signature[token]"]
+      || signatureBlock.token
+      || ""
+    ).trim();
+    const providedSignature = String(
+      req.body?.signature
+      || req.body?.["signature[signature]"]
+      || signatureBlock.signature
+      || ""
+    ).trim();
 
-    if (!timestamp || !token || !signature) {
+    if (!timestamp || !token || !providedSignature) {
       logger.warn("Mailgun webhook: missing timestamp, token, or signature");
       return false;
     }
@@ -30,7 +46,7 @@ function verifyMailgunSignature(req) {
       .update(data)
       .digest("hex");
 
-    const provided = Buffer.from(String(signature), "utf8");
+    const provided = Buffer.from(providedSignature, "utf8");
     const expected = Buffer.from(String(expectedSignature), "utf8");
     if (provided.length !== expected.length) {
       return false;
