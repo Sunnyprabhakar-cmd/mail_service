@@ -89,6 +89,8 @@ export async function ingestRecipientsFromCsvBuffer({ campaignId, csvBuffer, bat
     let insertedCount = 0;
     let invalidCount = 0;
     let settled = false;
+    let activeRowHandlers = 0;
+    let streamEnded = false;
 
     const finishSuccess = async () => {
       if (settled) {
@@ -101,8 +103,22 @@ export async function ingestRecipientsFromCsvBuffer({ campaignId, csvBuffer, bat
       resolve({ insertedCount, invalidCount });
     };
 
+    const maybeFinishSuccess = () => {
+      if (!streamEnded || activeRowHandlers > 0 || settled) {
+        return;
+      }
+      finishSuccess().catch(async (error) => {
+        if (!settled) {
+          settled = true;
+          await setCampaignImportStatus(campaignId, "failed", insertedCount, invalidCount, error.message).catch(() => {});
+          reject(error);
+        }
+      });
+    };
+
     parser.on("data", (row) => {
       parser.pause();
+      activeRowHandlers += 1;
 
       Promise.resolve()
         .then(async () => {
@@ -119,7 +135,13 @@ export async function ingestRecipientsFromCsvBuffer({ campaignId, csvBuffer, bat
             insertedCount += await flushBatch(campaignId, batch, batchSize);
           }
         })
-        .then(() => parser.resume())
+        .finally(() => {
+          activeRowHandlers = Math.max(0, activeRowHandlers - 1);
+          if (!settled) {
+            parser.resume();
+          }
+          maybeFinishSuccess();
+        })
         .catch(async (error) => {
           if (!settled) {
             settled = true;
@@ -131,13 +153,8 @@ export async function ingestRecipientsFromCsvBuffer({ campaignId, csvBuffer, bat
     });
 
     parser.on("end", () => {
-      finishSuccess().catch(async (error) => {
-        if (!settled) {
-          settled = true;
-          await setCampaignImportStatus(campaignId, "failed", insertedCount, invalidCount, error.message).catch(() => {});
-          reject(error);
-        }
-      });
+      streamEnded = true;
+      maybeFinishSuccess();
     });
 
     parser.on("error", async (error) => {
