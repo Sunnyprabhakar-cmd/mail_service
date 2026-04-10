@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import {
   appendCampaignEvent,
   findRecipientMessageMapping,
@@ -6,6 +7,30 @@ import {
 } from "../db/queries.js";
 import { env } from "../config/env.js";
 import { logger } from "../services/logger.js";
+
+function verifyMailgunSignature(req) {
+  try {
+    const timestamp = req.body.timestamp;
+    const token = req.body.token;
+    const signature = req.body.signature;
+
+    if (!timestamp || !token || !signature) {
+      logger.warn("Mailgun webhook: missing timestamp, token, or signature");
+      return false;
+    }
+
+    const data = `${timestamp}${token}`;
+    const expectedSignature = crypto
+      .createHmac("sha256", env.mailgunApiKey)
+      .update(data)
+      .digest("hex");
+
+    return signature === expectedSignature;
+  } catch (error) {
+    logger.error("Error verifying Mailgun signature", { error: error.message });
+    return false;
+  }
+}
 
 function coerceCampaignId(value) {
   const numeric = Number(value);
@@ -108,10 +133,10 @@ export async function handleMailgunWebhook(req, res, next) {
       if (incomingSecret !== env.webhookSecret) {
         return res.status(401).json({ error: "Unauthorized webhook" });
       }
-    }
-
-    const {
-      normalizedEvent,
+        // Verify Mailgun signature using HMAC-SHA256
+        if (!verifyMailgunSignature(req)) {
+          logger.warn("Mailgun webhook signature verification failed");
+          return res.status(401).json({ error: "Unauthorized webhook" });
       recipient,
       campaignId,
       reason,
