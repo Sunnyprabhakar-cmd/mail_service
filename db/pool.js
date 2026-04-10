@@ -7,6 +7,8 @@ function resolveSslConfig() {
   const rawToggle = String(process.env.DATABASE_SSL || "auto").trim().toLowerCase();
   const rawSslMode = String(process.env.DATABASE_SSL_MODE || process.env.PGSSLMODE || "").trim().toLowerCase();
   const dbUrl = String(env.databaseUrl || "");
+  const nodeEnv = String(env.nodeEnv || process.env.NODE_ENV || "development").trim().toLowerCase();
+  const isLocalRuntime = ["development", "dev", "test"].includes(nodeEnv);
 
   if (["false", "0", "no", "off", "disable"].includes(rawToggle)) {
     return false;
@@ -14,10 +16,12 @@ function resolveSslConfig() {
 
   const sslModeForcesTls = ["require", "verify-ca", "verify-full"].includes(rawSslMode);
   const urlForcesTls = /[?&]sslmode=require(?:&|$)/i.test(dbUrl);
+  const autoEnablesTls = rawToggle === "auto" && !isLocalRuntime;
   const shouldUseTls =
     ["true", "1", "yes", "on", "require"].includes(rawToggle) ||
     sslModeForcesTls ||
-    urlForcesTls;
+    urlForcesTls ||
+    autoEnablesTls;
 
   if (!shouldUseTls) {
     return false;
