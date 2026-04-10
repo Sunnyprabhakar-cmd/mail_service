@@ -12,6 +12,7 @@ import {
   updateCampaignStatusIfComplete,
   upsertRecipientMessageMapping
 } from "../db/queries.js";
+import { randomUUID } from "node:crypto";
 import { redisConnection } from "../queue/redis.js";
 import { enqueueCampaignRecipients } from "../queue/emailQueue.js";
 import { ingestRecipientsFromCsvBuffer } from "../services/campaignService.js";
@@ -225,7 +226,8 @@ export async function sendCampaign(req, res, next) {
 
     // One queued job per recipient gives isolated retry/failure handling.
     const pendingRecipients = await getPendingRecipientsByCampaign(campaignId);
-    const enqueueResult = await enqueueCampaignRecipients(pendingRecipients);
+    const sendBatchId = randomUUID();
+    const enqueueResult = await enqueueCampaignRecipients(pendingRecipients, 2000, sendBatchId);
 
     if (pendingRecipients.length === 0) {
       await updateCampaignStatusIfComplete(campaignId);
@@ -234,6 +236,7 @@ export async function sendCampaign(req, res, next) {
     return res.status(202).json({
       message: "Campaign queued",
       campaignId,
+      sendBatchId,
       queuedJobs: enqueueResult.queued,
       duplicateJobs: enqueueResult.duplicates,
       pendingRecipients: pendingRecipients.length

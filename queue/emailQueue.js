@@ -21,13 +21,14 @@ function isDuplicateJobError(error) {
   return /already exists|already waiting|job .* exists/i.test(message);
 }
 
-export async function enqueueCampaignRecipients(recipients, chunkSize = 2000) {
+export async function enqueueCampaignRecipients(recipients, chunkSize = 2000, sendBatchId = "") {
   if (!recipients.length) {
     return { queued: 0, duplicates: 0 };
   }
 
   let queued = 0;
   let duplicates = 0;
+  const cleanSendBatchId = String(sendBatchId || "").trim() || `${Date.now()}`;
 
   // Enqueue in chunks to avoid huge Redis payloads for very large campaigns.
   for (let offset = 0; offset < recipients.length; offset += chunkSize) {
@@ -38,10 +39,11 @@ export async function enqueueCampaignRecipients(recipients, chunkSize = 2000) {
           `recipient-${recipient.id}`,
           {
             recipientId: recipient.id,
-            campaignId: recipient.campaign_id
+            campaignId: recipient.campaign_id,
+            sendBatchId: cleanSendBatchId
           },
           {
-            jobId: `campaign-${recipient.campaign_id}-recipient-${recipient.id}`
+            jobId: `campaign-${recipient.campaign_id}-batch-${cleanSendBatchId}-recipient-${recipient.id}`
           }
         );
         queued += 1;
