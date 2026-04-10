@@ -33,6 +33,26 @@ export async function enqueueCampaignRecipients(recipients, chunkSize = 2000, se
   // Enqueue in chunks to avoid huge Redis payloads for very large campaigns.
   for (let offset = 0; offset < recipients.length; offset += chunkSize) {
     const chunk = recipients.slice(offset, offset + chunkSize);
+    const jobs = chunk.map((recipient) => ({
+      name: `recipient-${recipient.id}`,
+      data: {
+        recipientId: recipient.id,
+        campaignId: recipient.campaign_id,
+        sendBatchId: cleanSendBatchId
+      },
+      opts: {
+        jobId: `campaign-${recipient.campaign_id}-batch-${cleanSendBatchId}-recipient-${recipient.id}`
+      }
+    }));
+
+    try {
+      const added = await emailQueue.addBulk(jobs);
+      queued += Array.isArray(added) ? added.length : 0;
+      continue;
+    } catch (bulkError) {
+      // Fall back to one-by-one enqueue so one problematic job does not block the whole chunk.
+    }
+
     for (const recipient of chunk) {
       try {
         await emailQueue.add(
