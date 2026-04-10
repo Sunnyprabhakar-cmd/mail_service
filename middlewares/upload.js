@@ -22,11 +22,16 @@ export const uploadCsv = multer({
       return cb(null, true);
     }
 
+    if (file.fieldname === "attachmentFiles") {
+      return cb(null, true);
+    }
+
     return cb(new Error(`Unexpected file field: ${file.fieldname}`));
   }
 });
 
 export const uploadCampaignForm = uploadCsv.fields([
   { name: "file", maxCount: 1 },
-  { name: "assetFiles", maxCount: 40 }
+  { name: "assetFiles", maxCount: 40 },
+  { name: "attachmentFiles", maxCount: 20 }
 ]);

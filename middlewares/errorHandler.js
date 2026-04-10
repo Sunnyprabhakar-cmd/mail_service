@@ -11,6 +11,14 @@ export function errorHandler(error, _req, res, _next) {
     return res.status(400).json({ error: error.message });
   }
 
+  if (error.message === "Only image files are allowed for assetFiles") {
+    return res.status(400).json({ error: error.message });
+  }
+
+  if (String(error.message || "").startsWith("Unexpected file field:")) {
+    return res.status(400).json({ error: error.message });
+  }
+
   const detail = String(error?.message || "Unknown error");
   return res.status(500).json({ error: `Internal server error: ${detail}` });
 }

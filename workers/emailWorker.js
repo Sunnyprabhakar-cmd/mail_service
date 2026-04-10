@@ -5,6 +5,7 @@ import { redisConnection } from "../queue/redis.js";
 import { env } from "../config/env.js";
 import {
 	getCampaignAssets,
+	getCampaignAttachments,
 	getRecipientWithCampaign,
 	markRecipientAsFailed,
 	markRecipientAsSent,
@@ -70,6 +71,7 @@ const worker = new Worker(
 		const html = personalizeTemplate(record.template, variables);
 		const subject = personalizeTemplate(record.subject, variables);
 		const inlineAssets = await getCampaignAssets(record.campaign_id);
+		const attachments = await getCampaignAttachments(record.campaign_id);
 
 		try {
 			await sendMailgunEmail({
@@ -77,7 +79,8 @@ const worker = new Worker(
 				subject,
 				html,
 				replyTo: record.reply_to_email,
-				inlineAssets
+				inlineAssets,
+				attachments
 			});
 
 			await markRecipientAsSent(record.recipient_id);

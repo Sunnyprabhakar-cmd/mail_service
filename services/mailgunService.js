@@ -11,7 +11,7 @@ const mailgunClient = axios.create({
   timeout: 15000
 });
 
-export async function sendMailgunEmail({ to, subject, html, replyTo, inlineAssets = [] }) {
+export async function sendMailgunEmail({ to, subject, html, replyTo, inlineAssets = [], attachments = [] }) {
   const body = new FormData();
   body.append("from", env.mailgunFrom);
   body.append("to", to);
@@ -29,6 +29,17 @@ export async function sendMailgunEmail({ to, subject, html, replyTo, inlineAsset
     body.append("inline", asset.content, {
       filename: cid,
       contentType: String(asset.mime_type || "application/octet-stream")
+    });
+  }
+
+  for (const attachment of attachments) {
+    const fileName = String(attachment.file_name || attachment.fileName || "").trim();
+    if (!fileName) {
+      continue;
+    }
+    body.append("attachment", attachment.content, {
+      filename: fileName,
+      contentType: String(attachment.mime_type || attachment.mimeType || "application/octet-stream")
     });
   }
 

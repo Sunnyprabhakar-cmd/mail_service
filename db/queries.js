@@ -61,6 +61,20 @@ export async function getCampaignById(campaignId) {
   }
 }
 
+export async function listCampaigns(limit = 50) {
+  const boundedLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const result = await pool.query(
+    `
+      SELECT id, name, subject, reply_to_email, template, status, import_status, imported_count, invalid_count, import_error, created_at
+      FROM campaigns
+      ORDER BY created_at DESC
+      LIMIT $1
+    `,
+    [boundedLimit]
+  );
+  return result.rows;
+}
+
 export async function setCampaignImportStatus(campaignId, importStatus, importedCount = 0, invalidCount = 0, importError = null) {
   await pool.query(
     `
@@ -303,6 +317,62 @@ export async function getCampaignAssets(campaignId) {
     }
     throw error;
   }
+}
+
+export async function replaceCampaignAttachments(campaignId, attachments = []) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS campaign_attachments (
+      id BIGSERIAL PRIMARY KEY,
+      campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+      file_name VARCHAR(255) NOT NULL,
+      mime_type VARCHAR(120) NOT NULL,
+      content BYTEA NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_attachments_campaign_id ON campaign_attachments(campaign_id)`);
+
+  await pool.query(`DELETE FROM campaign_attachments WHERE campaign_id = $1`, [campaignId]);
+
+  let written = 0;
+  for (const attachment of attachments) {
+    await pool.query(
+      `
+        INSERT INTO campaign_attachments (campaign_id, file_name, mime_type, content)
+        VALUES ($1, $2, $3, $4)
+      `,
+      [campaignId, attachment.fileName, attachment.mimeType, attachment.content]
+    );
+    written += 1;
+  }
+
+  return written;
+}
+
+export async function getCampaignAttachments(campaignId) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS campaign_attachments (
+      id BIGSERIAL PRIMARY KEY,
+      campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+      file_name VARCHAR(255) NOT NULL,
+      mime_type VARCHAR(120) NOT NULL,
+      content BYTEA NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_attachments_campaign_id ON campaign_attachments(campaign_id)`);
+
+  const result = await pool.query(
+    `
+      SELECT file_name, mime_type, content
+      FROM campaign_attachments
+      WHERE campaign_id = $1
+      ORDER BY id ASC
+    `,
+    [campaignId]
+  );
+
+  return result.rows;
 }
 
 export async function updateRecipientStatusByEmail(campaignId, email, status, error = null) {
