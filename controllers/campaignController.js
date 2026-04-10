@@ -1,5 +1,7 @@
 import {
   createCampaign,
+  deleteAllCampaigns,
+  deleteCampaign,
   listCampaigns,
   listCampaignEvents,
   getCampaignById,
@@ -13,9 +15,11 @@ import {
   upsertRecipientMessageMapping
 } from "../db/queries.js";
 import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { readFile, unlink } from "node:fs/promises";
 import { redisConnection } from "../queue/redis.js";
 import { enqueueCampaignRecipients } from "../queue/emailQueue.js";
-import { ingestRecipientsFromCsvBuffer } from "../services/campaignService.js";
+import { ingestRecipientsFromCsvBuffer, ingestRecipientsFromCsvStream } from "../services/campaignService.js";
 import { signCampaignToken } from "../services/campaignTokenService.js";
 import { readWorkerHeartbeat } from "../services/workerHeartbeat.js";
 import { logger } from "../services/logger.js";
@@ -91,20 +95,50 @@ function groupUploadedFiles(files) {
   return buckets;
 }
 
+async function cleanupUploadedFiles(files) {
+  await Promise.allSettled(
+    (Array.isArray(files) ? files : [])
+      .map((file) => String(file?.path || "").trim())
+      .filter(Boolean)
+      .map((filePath) => unlink(filePath))
+  );
+}
+
+async function readUploadedFileBuffer(file) {
+  if (!file) {
+    return null;
+  }
+
+  if (Buffer.isBuffer(file.buffer)) {
+    return file.buffer;
+  }
+
+  if (file.path) {
+    return readFile(file.path);
+  }
+
+  return null;
+}
+
 export async function uploadCampaignCsv(req, res, next) {
+  const uploadedFiles = Array.isArray(req.files) ? req.files : [];
+
   try {
     const { name, subject, template, replyToEmail } = req.body;
     const groupedFiles = groupUploadedFiles(req.files);
     const file = groupedFiles.file[0];
     const uploadedAssets = groupedFiles.assetFiles;
     const uploadedAttachments = groupedFiles.attachmentFiles;
+
     let assetManifest = [];
     let attachmentManifest = [];
+
     try {
       assetManifest = JSON.parse(String(req.body.assetManifest || "[]"));
     } catch {
       assetManifest = [];
     }
+
     try {
       attachmentManifest = JSON.parse(String(req.body.attachmentManifest || "[]"));
     } catch {
@@ -119,26 +153,31 @@ export async function uploadCampaignCsv(req, res, next) {
       return res.status(400).json({ error: "CSV file is required" });
     }
 
-    const campaign = await createCampaign({ name, subject, template, replyToEmail: String(replyToEmail || "").trim() || null });
+    const campaign = await createCampaign({
+      name,
+      subject,
+      template,
+      replyToEmail: String(replyToEmail || "").trim() || null
+    });
     const campaignToken = signCampaignToken(campaign.id);
 
     let uploadedAssetCount = 0;
     if (uploadedAssets.length > 0) {
-      const mappedAssets = uploadedAssets
-        .map((assetFile, index) => {
-          const meta = assetManifest[index] || {};
-          const cid = String(meta.cid || "").trim();
-          if (!cid) {
-            return null;
-          }
-          return {
-            cid,
-            fileName: String(meta.fileName || assetFile.originalname || cid),
-            mimeType: String(assetFile.mimetype || "application/octet-stream"),
-            content: assetFile.buffer
-          };
-        })
-        .filter(Boolean);
+      const mappedAssets = [];
+      for (const [index, assetFile] of uploadedAssets.entries()) {
+        const buffer = await readUploadedFileBuffer(assetFile);
+        const meta = assetManifest[index] || {};
+        const cid = String(meta.cid || "").trim();
+        if (!cid || !buffer) {
+          continue;
+        }
+        mappedAssets.push({
+          cid,
+          fileName: String(meta.fileName || assetFile.originalname || cid),
+          mimeType: String(assetFile.mimetype || "application/octet-stream"),
+          content: buffer
+        });
+      }
 
       if (mappedAssets.length > 0) {
         uploadedAssetCount = await upsertCampaignAssets(campaign.id, mappedAssets);
@@ -147,22 +186,37 @@ export async function uploadCampaignCsv(req, res, next) {
 
     let uploadedAttachmentCount = 0;
     if (uploadedAttachments.length > 0) {
-      const mappedAttachments = uploadedAttachments.map((attachmentFile, index) => {
+      const mappedAttachments = [];
+      for (const [index, attachmentFile] of uploadedAttachments.entries()) {
+        const buffer = await readUploadedFileBuffer(attachmentFile);
+        if (!buffer) {
+          continue;
+        }
         const meta = attachmentManifest[index] || {};
-        return {
+        mappedAttachments.push({
           fileName: String(meta.fileName || attachmentFile.originalname || `attachment-${index + 1}`),
           mimeType: String(attachmentFile.mimetype || "application/octet-stream"),
-          content: attachmentFile.buffer
-        };
-      });
+          content: buffer
+        });
+      }
+
       uploadedAttachmentCount = await replaceCampaignAttachments(campaign.id, mappedAttachments);
     }
 
-    const importResult = await ingestRecipientsFromCsvBuffer({
-      campaignId: campaign.id,
-      csvBuffer: file.buffer,
-      batchSize: 1000
-    });
+    let importResult;
+    if (file.path) {
+      importResult = await ingestRecipientsFromCsvStream({
+        campaignId: campaign.id,
+        readableStream: createReadStream(file.path),
+        batchSize: 1000
+      });
+    } else {
+      importResult = await ingestRecipientsFromCsvBuffer({
+        campaignId: campaign.id,
+        csvBuffer: file.buffer,
+        batchSize: 1000
+      });
+    }
 
     logger.info("Campaign CSV ingested", {
       campaignId: campaign.id,
@@ -181,6 +235,8 @@ export async function uploadCampaignCsv(req, res, next) {
     });
   } catch (error) {
     return next(error);
+  } finally {
+    await cleanupUploadedFiles(uploadedFiles);
   }
 }
 
@@ -320,9 +376,40 @@ export async function getCampaigns(req, res, next) {
   }
 }
 
+export async function removeCampaign(req, res, next) {
+  try {
+    const campaignId = Number(req.params.id);
+    if (!Number.isInteger(campaignId) || campaignId <= 0) {
+      return res.status(400).json({ error: "Invalid campaign id" });
+    }
+
+    const deletedCount = await deleteCampaign(campaignId);
+    if (deletedCount === 0) {
+      return res.status(404).json({ error: "Campaign not found" });
+    }
+
+    return res.status(200).json({ ok: true, deletedCount, campaignId });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function removeAllCampaigns(req, res, next) {
+  try {
+    const deletedCount = await deleteAllCampaigns();
+    return res.status(200).json({ ok: true, deletedCount });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function sendCampaignTest(req, res, next) {
   try {
-    const campaignId = Number(req.params.id || req.body?.campaignId);
+    const routeCampaignId = Number(req.params.id);
+    const bodyCampaignId = Number(req.body?.campaignId);
+    const campaignId = Number.isInteger(routeCampaignId) && routeCampaignId > 0
+      ? routeCampaignId
+      : bodyCampaignId;
     if (!Number.isInteger(campaignId) || campaignId <= 0) {
       return res.status(400).json({ error: "Invalid campaign id" });
     }

@@ -625,3 +625,21 @@ export async function deleteOldCampaigns(days) {
 
   return result.rowCount;
 }
+
+export async function deleteCampaign(campaignId) {
+  const result = await pool.query(
+    `
+      DELETE FROM campaigns
+      WHERE id = $1
+      RETURNING id
+    `,
+    [campaignId]
+  );
+
+  return result.rowCount;
+}
+
+export async function deleteAllCampaigns() {
+  const result = await pool.query(`DELETE FROM campaigns RETURNING id`);
+  return result.rowCount;
+}

@@ -5,6 +5,20 @@ import { batchInsertRecipients, setCampaignImportStatus } from "../db/queries.js
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
 const CSV_MAX_COLUMNS = Math.max(1, Number(process.env.CSV_MAX_COLUMNS || 5000));
 
+const campaignServiceDeps = {
+  batchInsertRecipients,
+  setCampaignImportStatus
+};
+
+export function __setCampaignServiceDeps(overrides = {}) {
+  Object.assign(campaignServiceDeps, overrides);
+}
+
+export function __resetCampaignServiceDeps() {
+  campaignServiceDeps.batchInsertRecipients = batchInsertRecipients;
+  campaignServiceDeps.setCampaignImportStatus = setCampaignImportStatus;
+}
+
 function normalizeHeaderKey(key) {
   return String(key || "")
     .replace(/^\uFEFF/, "")
@@ -43,7 +57,7 @@ async function flushBatch(campaignId, batch, batchSize) {
   }
 
   const recipients = batch.splice(0, batch.length);
-  return batchInsertRecipients(campaignId, recipients, batchSize);
+  return campaignServiceDeps.batchInsertRecipients(campaignId, recipients, batchSize);
 }
 
 export function parseCsvStream(readableStream) {
@@ -81,17 +95,34 @@ export function validateRecipients(rows) {
 }
 
 export async function ingestRecipientsFromCsvBuffer({ campaignId, csvBuffer, batchSize = 1000 }) {
-  await setCampaignImportStatus(campaignId, "processing", 0, 0, null);
+  return ingestRecipientsFromCsvStream({
+    campaignId,
+    readableStream: Readable.from(csvBuffer),
+    batchSize
+  });
+}
+
+export async function ingestRecipientsFromCsvStream({ campaignId, readableStream, batchSize = 1000 }) {
+  await campaignServiceDeps.setCampaignImportStatus(campaignId, "processing", 0, 0, null);
 
   return new Promise((resolve, reject) => {
-    const stream = Readable.from(csvBuffer);
-    const parser = stream.pipe(csvParser());
+    const parser = readableStream.pipe(csvParser());
     const batch = [];
     let insertedCount = 0;
     let invalidCount = 0;
     let settled = false;
     let activeRowHandlers = 0;
     let streamEnded = false;
+
+    const failImport = async (error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      await campaignServiceDeps.setCampaignImportStatus(campaignId, "failed", insertedCount, invalidCount, error.message).catch(() => {});
+      reject(error);
+    };
 
     parser.on("headers", (headers) => {
       const count = Array.isArray(headers) ? headers.length : 0;
@@ -105,9 +136,9 @@ export async function ingestRecipientsFromCsvBuffer({ campaignId, csvBuffer, bat
         return;
       }
 
-      settled = true;
       insertedCount += await flushBatch(campaignId, batch, batchSize);
-      await setCampaignImportStatus(campaignId, "completed", insertedCount, invalidCount, null);
+      await campaignServiceDeps.setCampaignImportStatus(campaignId, "completed", insertedCount, invalidCount, null);
+      settled = true;
       resolve({ insertedCount, invalidCount });
     };
 
@@ -116,11 +147,7 @@ export async function ingestRecipientsFromCsvBuffer({ campaignId, csvBuffer, bat
         return;
       }
       finishSuccess().catch(async (error) => {
-        if (!settled) {
-          settled = true;
-          await setCampaignImportStatus(campaignId, "failed", insertedCount, invalidCount, error.message).catch(() => {});
-          reject(error);
-        }
+        await failImport(error);
       });
     };
 
@@ -128,8 +155,8 @@ export async function ingestRecipientsFromCsvBuffer({ campaignId, csvBuffer, bat
       parser.pause();
       activeRowHandlers += 1;
 
-      Promise.resolve()
-        .then(async () => {
+      void (async () => {
+        try {
           const recipient = normalizeRecipient(row);
 
           if (!recipient.email || !EMAIL_REGEX.test(recipient.email)) {
@@ -142,22 +169,17 @@ export async function ingestRecipientsFromCsvBuffer({ campaignId, csvBuffer, bat
           if (batch.length >= batchSize) {
             insertedCount += await flushBatch(campaignId, batch, batchSize);
           }
-        })
-        .finally(() => {
+        } catch (error) {
+          parser.destroy(error);
+          await failImport(error);
+        } finally {
           activeRowHandlers = Math.max(0, activeRowHandlers - 1);
           if (!settled) {
             parser.resume();
           }
           maybeFinishSuccess();
-        })
-        .catch(async (error) => {
-          if (!settled) {
-            settled = true;
-            parser.destroy(error);
-            await setCampaignImportStatus(campaignId, "failed", insertedCount, invalidCount, error.message).catch(() => {});
-            reject(error);
-          }
-        });
+        }
+      })();
     });
 
     parser.on("end", () => {
@@ -166,11 +188,7 @@ export async function ingestRecipientsFromCsvBuffer({ campaignId, csvBuffer, bat
     });
 
     parser.on("error", async (error) => {
-      if (!settled) {
-        settled = true;
-        await setCampaignImportStatus(campaignId, "failed", insertedCount, invalidCount, error.message).catch(() => {});
-        reject(error);
-      }
+      await failImport(error);
     });
   });
 }

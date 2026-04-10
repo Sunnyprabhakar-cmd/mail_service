@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { uploadCampaignForm } from "../middlewares/upload.js";
 import { requireCampaignAccess } from "../middlewares/campaignAuth.js";
+import { requireApiToken } from "../middlewares/apiAuth.js";
 import { getHealth } from "../controllers/healthController.js";
 import {
 	campaignEvents,
@@ -9,6 +10,8 @@ import {
 	campaignProgress,
 	campaignStatus,
 	retryPendingCampaignRecipients,
+	removeAllCampaigns,
+	removeCampaign,
 	sendCampaignTest,
 	sendCampaign,
 	uploadCampaignCsv
@@ -21,6 +24,8 @@ router.get("/health", getHealth);
 
 router.get("/campaigns", getCampaigns);
 router.post("/campaigns/upload", uploadCampaignForm, uploadCampaignCsv);
+router.delete("/campaigns", requireApiToken, removeAllCampaigns);
+router.delete("/campaigns/:id", requireCampaignAccess, removeCampaign);
 router.post("/campaigns/:id/send", requireCampaignAccess, sendCampaign);
 router.post("/campaigns/:id/retry-pending", requireCampaignAccess, retryPendingCampaignRecipients);
 router.post("/campaigns/:id/send-test", requireCampaignAccess, sendCampaignTest);

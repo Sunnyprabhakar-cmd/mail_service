@@ -15,7 +15,11 @@ function getBearerToken(authorizationHeader) {
 
 export function requireCampaignAccess(req, res, next) {
   try {
-    const campaignId = Number(req.params.id);
+    const routeCampaignId = Number(req.params.id);
+    const bodyCampaignId = Number(req.body?.campaignId);
+    const campaignId = Number.isInteger(routeCampaignId) && routeCampaignId > 0
+      ? routeCampaignId
+      : bodyCampaignId;
     if (!Number.isInteger(campaignId) || campaignId <= 0) {
       return res.status(400).json({ error: "Invalid campaign id" });
     }
