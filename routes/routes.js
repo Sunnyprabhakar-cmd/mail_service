@@ -25,7 +25,7 @@ router.get("/health", getHealth);
 router.get("/campaigns", getCampaigns);
 router.post("/campaigns/upload", uploadCampaignForm, uploadCampaignCsv);
 router.delete("/campaigns", requireApiToken, removeAllCampaigns);
-router.delete("/campaigns/:id", requireCampaignAccess, removeCampaign);
+router.delete("/campaigns/:id", requireApiToken, removeCampaign);
 router.post("/campaigns/:id/send", requireCampaignAccess, sendCampaign);
 router.post("/campaigns/:id/retry-pending", requireCampaignAccess, retryPendingCampaignRecipients);
 router.post("/campaigns/:id/send-test", requireCampaignAccess, sendCampaignTest);
