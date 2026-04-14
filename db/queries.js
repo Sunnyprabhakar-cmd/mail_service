@@ -120,9 +120,25 @@ export async function batchInsertRecipients(campaignId, recipients, batchSize = 
 
 export async function getPendingRecipientsByCampaign(campaignId) {
   const result = await pool.query(
-    `SELECT id, campaign_id, email FROM recipients WHERE campaign_id = $1 AND status = 'pending'`,
+    `SELECT id, campaign_id, email FROM recipients WHERE campaign_id = $1 AND status = 'pending' ORDER BY id ASC`,
     [campaignId]
   );
+  return result.rows;
+}
+
+export async function resetFailedRecipientsByCampaign(campaignId) {
+  const result = await pool.query(
+    `
+    UPDATE recipients
+    SET status = 'pending',
+        error = NULL
+    WHERE campaign_id = $1
+      AND status = 'failed'
+    RETURNING id, campaign_id, email
+  `,
+    [campaignId]
+  );
+
   return result.rows;
 }
 

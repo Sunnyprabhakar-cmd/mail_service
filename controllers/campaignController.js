@@ -10,6 +10,7 @@ import {
   getCampaignStatusCounts,
   getPendingRecipientsByCampaign,
   replaceCampaignAttachments,
+  resetFailedRecipientsByCampaign,
   upsertCampaignAssets,
   updateCampaignStatusIfComplete,
   upsertRecipientMessageMapping
@@ -282,20 +283,36 @@ export async function sendCampaign(req, res, next) {
 
     // One queued job per recipient gives isolated retry/failure handling.
     const pendingRecipients = await getPendingRecipientsByCampaign(campaignId);
-    const sendBatchId = randomUUID();
-    const enqueueResult = await enqueueCampaignRecipients(pendingRecipients, 2000, sendBatchId);
-
     if (pendingRecipients.length === 0) {
       await updateCampaignStatusIfComplete(campaignId);
+      return res.status(200).json({
+        message: "No pending recipients to queue",
+        campaignId,
+        queued: false,
+        sent: true,
+        queuedJobs: 0,
+        queuedRecipients: 0,
+        duplicateJobs: 0,
+        pendingRecipients: 0,
+        total: 0,
+        status: "sent"
+      });
     }
+
+    const sendBatchId = randomUUID();
+    const enqueueResult = await enqueueCampaignRecipients(pendingRecipients, 2000, sendBatchId);
 
     return res.status(202).json({
       message: "Campaign queued",
       campaignId,
       sendBatchId,
+      queued: enqueueResult.queued > 0,
       queuedJobs: enqueueResult.queued,
+      queuedRecipients: pendingRecipients.length,
       duplicateJobs: enqueueResult.duplicates,
-      pendingRecipients: pendingRecipients.length
+      pendingRecipients: pendingRecipients.length,
+      total: pendingRecipients.length,
+      status: "queued"
     });
   } catch (error) {
     return next(error);
@@ -328,9 +345,13 @@ export async function retryPendingCampaignRecipients(req, res, next) {
       return res.status(200).json({
         message: "No pending recipients to requeue",
         campaignId,
+        queued: false,
         queuedJobs: 0,
+        queuedRecipients: 0,
         duplicateJobs: 0,
-        pendingRecipients: 0
+        pendingRecipients: 0,
+        total: 0,
+        status: "sent"
       });
     }
 
@@ -341,9 +362,71 @@ export async function retryPendingCampaignRecipients(req, res, next) {
       message: "Pending recipients requeued",
       campaignId,
       sendBatchId,
+      queued: enqueueResult.queued > 0,
       queuedJobs: enqueueResult.queued,
+      queuedRecipients: pendingRecipients.length,
       duplicateJobs: enqueueResult.duplicates,
-      pendingRecipients: pendingRecipients.length
+      pendingRecipients: pendingRecipients.length,
+      total: pendingRecipients.length,
+      status: "queued"
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function retryFailedCampaignRecipients(req, res, next) {
+  try {
+    const campaignId = Number(req.params.id);
+    if (!Number.isInteger(campaignId) || campaignId <= 0) {
+      return res.status(400).json({ error: "Invalid campaign id" });
+    }
+
+    const campaign = await getCampaignById(campaignId);
+    if (!campaign) {
+      return res.status(404).json({ error: "Campaign not found" });
+    }
+
+    const workerHealth = await readWorkerHeartbeat(redisConnection);
+    if (workerHealth.status !== "online") {
+      return res.status(503).json({
+        error: "Email worker is not online. Start worker service (or enable RUN_WORKER_IN_API=true) before retrying failed recipients.",
+        worker: workerHealth
+      });
+    }
+
+    const retryRecipients = await resetFailedRecipientsByCampaign(campaignId);
+    if (retryRecipients.length === 0) {
+      await updateCampaignStatusIfComplete(campaignId);
+      return res.status(200).json({
+        message: "No failed recipients to requeue",
+        campaignId,
+        queued: false,
+        queuedJobs: 0,
+        queuedRecipients: 0,
+        duplicateJobs: 0,
+        failedRecipients: 0,
+        pendingRecipients: 0,
+        total: 0,
+        status: "sent"
+      });
+    }
+
+    const sendBatchId = randomUUID();
+    const enqueueResult = await enqueueCampaignRecipients(retryRecipients, 2000, sendBatchId);
+
+    return res.status(202).json({
+      message: "Failed recipients requeued",
+      campaignId,
+      sendBatchId,
+      queued: enqueueResult.queued > 0,
+      queuedJobs: enqueueResult.queued,
+      queuedRecipients: retryRecipients.length,
+      duplicateJobs: enqueueResult.duplicates,
+      failedRecipients: retryRecipients.length,
+      pendingRecipients: retryRecipients.length,
+      total: retryRecipients.length,
+      status: "queued"
     });
   } catch (error) {
     return next(error);
@@ -439,9 +522,16 @@ export async function sendCampaignTest(req, res, next) {
     const attachments = await getCampaignAttachments(campaignId);
     const availableCids = new Set(inlineAssets.map((asset) => String(asset.cid || "").trim()));
     const missingCids = expectedCids.filter((cid) => !availableCids.has(cid));
-    if (missingCids.length > 0) {
-      return res.status(400).json({ error: `Missing inline assets for CID(s): ${missingCids.join(", ")}` });
-    }
+
+    // Strip img tags for CIDs not in the DB rather than hard-failing.
+    // This mirrors the upload-time sanitization: if a CID image wasn't uploaded
+    // (e.g. local file path was inaccessible at upload time), the test email
+    // still sends with whatever assets are available.
+    const sanitizedTemplate = missingCids.length > 0
+      ? htmlTemplate.replace(/<img\b[^>]*src=["']cid:([a-zA-Z0-9._-]+)["'][^>]*>/gi, (match, cidValue) =>
+          availableCids.has(String(cidValue || "").trim()) ? match : ""
+        ).replace(/\n{3,}/g, "\n\n")
+      : htmlTemplate;
 
     const nameFromEmail = String(to.split("@")[0] || "")
       .replace(/[._-]+/g, " ")
@@ -456,7 +546,7 @@ export async function sendCampaignTest(req, res, next) {
     };
 
     const subject = personalizeTemplate(subjectTemplate, variables);
-    const html = personalizeTemplate(htmlTemplate, variables);
+    const html = personalizeTemplate(sanitizedTemplate, variables);
 
     const mailgunResult = await sendMailgunEmail({
       to,

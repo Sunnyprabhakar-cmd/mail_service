@@ -9,6 +9,7 @@ import {
 	getCampaigns,
 	campaignProgress,
 	campaignStatus,
+	retryFailedCampaignRecipients,
 	retryPendingCampaignRecipients,
 	removeAllCampaigns,
 	removeCampaign,
@@ -28,6 +29,7 @@ router.delete("/campaigns", requireApiToken, removeAllCampaigns);
 router.delete("/campaigns/:id", requireApiToken, removeCampaign);
 router.post("/campaigns/:id/send", requireCampaignAccess, sendCampaign);
 router.post("/campaigns/:id/retry-pending", requireCampaignAccess, retryPendingCampaignRecipients);
+router.post("/campaigns/:id/retry-failed", requireCampaignAccess, retryFailedCampaignRecipients);
 router.post("/campaigns/:id/send-test", requireCampaignAccess, sendCampaignTest);
 router.get("/campaigns/:id/status", campaignStatus);
 router.get("/campaigns/:id/progress", campaignProgress);

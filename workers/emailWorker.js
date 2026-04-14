@@ -31,9 +31,15 @@ const workerHealthServer = http.createServer((req, res) => {
 	res.end("Not found");
 });
 
-workerHealthServer.listen(workerHttpPort, "0.0.0.0", () => {
-	logger.info("Worker health server listening", { port: workerHttpPort });
-});
+const shouldStartWorkerHealthServer = !env.runWorkerInApi || Boolean(process.env.WORKER_HTTP_PORT);
+
+if (shouldStartWorkerHealthServer) {
+	workerHealthServer.listen(workerHttpPort, "0.0.0.0", () => {
+		logger.info("Worker health server listening", { port: workerHttpPort });
+	});
+} else {
+	logger.info("Embedded worker using API health endpoint");
+}
 
 const stopHeartbeat = startWorkerHeartbeat(redisConnection, {
 	source: env.runWorkerInApi ? "embedded" : "worker",
@@ -65,6 +71,14 @@ async function maybeUpdateCampaignCompletion(campaignId) {
 			error: error?.message || String(error)
 		});
 	}
+}
+
+async function closeWorkerHealthServer() {
+	if (!shouldStartWorkerHealthServer) {
+		return;
+	}
+
+	await new Promise((resolve) => workerHealthServer.close(() => resolve(undefined)));
 }
 
 function fallbackNameFromEmail(email) {
@@ -195,7 +209,7 @@ worker.on("failed", (job, error) => {
 process.on("SIGINT", async () => {
 	logger.warn("Gracefully shutting down worker");
 	stopHeartbeat();
-	await new Promise((resolve) => workerHealthServer.close(() => resolve(undefined)));
+	await closeWorkerHealthServer();
 	await worker.close();
 	await redisConnection.quit();
 	process.exit(0);
@@ -204,7 +218,7 @@ process.on("SIGINT", async () => {
 process.on("SIGTERM", async () => {
 	logger.warn("Gracefully shutting down worker");
 	stopHeartbeat();
-	await new Promise((resolve) => workerHealthServer.close(() => resolve(undefined)));
+	await closeWorkerHealthServer();
 	await worker.close();
 	await redisConnection.quit();
 	process.exit(0);
